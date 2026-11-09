@@ -6,6 +6,7 @@ model User {
   phoneVerified      Boolean              @default(false)
   emailVerified      Boolean              @default(false)
   image              String?
+  imageKey           String?
   role               UserRole             @default(CUSTOMER)
   isBanned           Boolean              @default(false)
   address            String?

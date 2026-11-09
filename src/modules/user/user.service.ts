@@ -3,6 +3,7 @@ import type { Prisma } from "../../generated/prisma/client";
 import { UserRole } from "../../generated/prisma/enums";
 import { AppError } from "../../helpers/AppError";
 import { paginationMeta, getPagination } from "../../shared/pagination";
+import { deleteFile, getFileUrl, uploadFile } from "../../lib/storage";
 import type { GetAllUsersQuery, UpdateUserPayload } from "./user.validation";
 import { IActor } from "./user.interface";
 
@@ -78,10 +79,14 @@ export const userService = {
         return user;
     },
 
-    updateUser: async (actor: IActor, userId: string, payload: UpdateUserPayload) => {
+    updateUser: async (actor: IActor, userId: string, payload: UpdateUserPayload, file: Express.Multer.File | undefined) => {
+        if (!file && Object.keys(payload).length === 0) {
+            throw new AppError("Provide at least one field or an image to update", 400);
+        }
+
         const target = await prisma.user.findFirst({
             where: { id: userId, deletedAt: null },
-            select: { role: true, phone: true },
+            select: { role: true, phone: true, imageKey: true },
         });
 
         if (!target) {
@@ -122,14 +127,30 @@ export const userService = {
         const roleChanged = payload.role !== undefined && payload.role !== target.role;
         const signOutUser = roleChanged || payload.isBanned === true;
 
-        const [user] = await prisma.$transaction([
-            prisma.user.update({
-                where: { id: userId },
-                data: { ...payload, ...(phoneChanged && { phoneVerified: false }) },
-                select: userSelect,
-            }),
-            ...(signOutUser ? [prisma.session.deleteMany({ where: { userId } })] : []),
-        ]);
+        const uploaded = file ? await uploadFile(file, "users") : null;
+
+        let user;
+        try {
+            [user] = await prisma.$transaction([
+                prisma.user.update({
+                    where: { id: userId },
+                    data: {
+                        ...payload,
+                        ...(phoneChanged && { phoneVerified: false }),
+                        ...(uploaded && { image: getFileUrl(uploaded.key), imageKey: uploaded.key }),
+                    },
+                    select: userSelect,
+                }),
+                ...(signOutUser ? [prisma.session.deleteMany({ where: { userId } })] : []),
+            ]);
+        } catch (error) {
+            if (uploaded) await deleteFile(uploaded.key);
+            throw error;
+        }
+
+        if (uploaded && target.imageKey) {
+            await deleteFile(target.imageKey);
+        }
 
         return user;
     },

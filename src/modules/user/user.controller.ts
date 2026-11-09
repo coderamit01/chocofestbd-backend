@@ -65,7 +65,7 @@ export const userController = {
         const { userId } = userIdParamSchema.parse(req.params);
         const actor = { id: req.user!.id, role: req.user!.role as UserRole };
 
-        const user = await userService.updateUser(actor, userId, req.body);
+        const user = await userService.updateUser(actor, userId, req.body, req.file);
 
         res.setHeader("Cache-Control", "no-store");
         sendResponse(res, {

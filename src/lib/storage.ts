@@ -8,7 +8,7 @@ import sharp from "sharp";
 import { envVars } from "../config/env";
 import { AppError } from "../helpers/AppError";
 
-export type StorageFolder = "gallery" | "products" | "categories" | "brands" | "banners" | "reviews" | "blog" | "invoice";
+export type StorageFolder = "gallery" | "users" | "products" | "categories" | "brands" | "banners" | "reviews" | "blog" | "invoice";
 
 export type FileKind = "image" | "svg" | "pdf";
 
