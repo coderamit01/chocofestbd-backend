@@ -108,7 +108,7 @@ export const bannerController = {
 
     updateBanner: catchAsync(async (req: Request, res: Response) => {
         const { bannerId } = bannerIdParamSchema.parse(req.params);
-        const banner = await bannerService.updateBanner(bannerId, req.body);
+        const banner = await bannerService.updateBanner(bannerId, req.body, req.file);
 
         sendResponse(res, {
             statusCode: 200,

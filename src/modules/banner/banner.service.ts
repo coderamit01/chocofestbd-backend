@@ -21,7 +21,7 @@ const bannerCategorySelect = {
 const bannerSelect = {
     id: true,
     title: true,
-    imageKey: true,
+    image: true,
     link: true,
     sortOrder: true,
     isActive: true,
@@ -29,13 +29,6 @@ const bannerSelect = {
     createdAt: true,
     updatedAt: true,
 } satisfies Prisma.BannerSelect;
-
-type BannerRecord = Prisma.BannerGetPayload<{ select: typeof bannerSelect }>;
-
-const toBannerResponse = ({ imageKey, ...banner }: BannerRecord) => ({
-    ...banner,
-    image: getFileUrl(imageKey),
-});
 
 const ensureBannerCategoryExists = async (categoryId: string) => {
     const category = await prisma.bannerCategory.findUnique({
@@ -141,12 +134,10 @@ export const bannerService = {
         const { key } = await uploadFile(file, "banners");
 
         try {
-            const banner = await prisma.banner.create({
-                data: { ...payload, imageKey: key },
+            return await prisma.banner.create({
+                data: { ...payload, image: getFileUrl(key) as string, imageKey: key },
                 select: bannerSelect,
             });
-
-            return toBannerResponse(banner);
         } catch (error) {
             await deleteFile(key);
             throw error;
@@ -172,7 +163,7 @@ export const bannerService = {
             prisma.banner.count({ where }),
         ]);
 
-        return { banners: banners.map(toBannerResponse), meta: paginationMeta(query, total) };
+        return { banners, meta: paginationMeta(query, total) };
     },
 
     getBannerById: async (bannerId: string) => {
@@ -185,13 +176,17 @@ export const bannerService = {
             throw new AppError("Banner not found", 404);
         }
 
-        return toBannerResponse(banner);
+        return banner;
     },
 
-    updateBanner: async (bannerId: string, payload: UpdateBannerPayload) => {
+    updateBanner: async (bannerId: string, payload: UpdateBannerPayload, file: Express.Multer.File | undefined) => {
+        if (!file && Object.keys(payload).length === 0) {
+            throw new AppError("Provide at least one field or an image to update", 400);
+        }
+
         const banner = await prisma.banner.findUnique({
             where: { id: bannerId },
-            select: { id: true },
+            select: { imageKey: true },
         });
 
         if (!banner) {
@@ -202,13 +197,31 @@ export const bannerService = {
             await ensureBannerCategoryExists(payload.categoryId);
         }
 
-        const updated = await prisma.banner.update({
-            where: { id: bannerId },
-            data: payload,
-            select: bannerSelect,
-        });
+        if (!file) {
+            return prisma.banner.update({
+                where: { id: bannerId },
+                data: payload,
+                select: bannerSelect,
+            });
+        }
 
-        return toBannerResponse(updated);
+        const { key } = await uploadFile(file, "banners");
+
+        let updated;
+        try {
+            updated = await prisma.banner.update({
+                where: { id: bannerId },
+                data: { ...payload, image: getFileUrl(key) as string, imageKey: key },
+                select: bannerSelect,
+            });
+        } catch (error) {
+            await deleteFile(key);
+            throw error;
+        }
+
+        await deleteFile(banner.imageKey);
+
+        return updated;
     },
 
     deleteBanner: async (bannerId: string) => {

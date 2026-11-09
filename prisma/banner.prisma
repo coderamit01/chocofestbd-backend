@@ -1,6 +1,7 @@
 model Banner {
   id         String         @id @default(uuid(7))
   title      String
+  image      String
   imageKey   String
   link       String?
   categoryId String

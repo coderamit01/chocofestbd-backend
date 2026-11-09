@@ -56,18 +56,16 @@ export const createBannerSchema = z.strictObject(
     { error: (issue) => (issue.code === "unrecognized_keys" ? `Field not allowed: ${issue.keys.join(", ")}` : undefined) },
 );
 
-export const updateBannerSchema = z
-    .strictObject(
-        {
-            title: bannerFields.title.exactOptional(),
-            link: bannerFields.link.exactOptional(),
-            categoryId: bannerFields.categoryId.exactOptional(),
-            sortOrder: bannerFields.sortOrder.exactOptional(),
-            isActive: bannerFields.isActive.exactOptional(),
-        },
-        { error: (issue) => (issue.code === "unrecognized_keys" ? `Field not allowed: ${issue.keys.join(", ")}` : undefined) },
-    )
-    .refine((data) => Object.keys(data).length > 0, { error: "Provide at least one field to update" });
+export const updateBannerSchema = z.strictObject(
+    {
+        title: createBannerSchema.shape.title.exactOptional(),
+        link: createBannerSchema.shape.link,
+        categoryId: createBannerSchema.shape.categoryId.exactOptional(),
+        sortOrder: createBannerSchema.shape.sortOrder,
+        isActive: createBannerSchema.shape.isActive,
+    },
+    { error: (issue) => (issue.code === "unrecognized_keys" ? `Field not allowed: ${issue.keys.join(", ")}` : undefined) },
+);
 
 export const getAllBannersQuerySchema = paginationQuerySchema.extend({
     categoryId: z.string().trim().min(1).optional(),
