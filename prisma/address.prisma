@@ -21,8 +21,8 @@ model Address {
   recipientName  String
   recipientPhone String
   address        String
-  area           String?
-  city           String
+  district       String
+  area           String
   deliveryZoneId String
   deliveryZone   DeliveryZone @relation(fields: [deliveryZoneId], references: [id], onDelete: Restrict)
   isDefault      Boolean      @default(false)

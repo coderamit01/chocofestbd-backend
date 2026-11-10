@@ -18,7 +18,6 @@ const userSelect = {
     image: true,
     role: true,
     isBanned: true,
-    address: true,
     points: true,
     deletedAt: true,
     createdAt: true,

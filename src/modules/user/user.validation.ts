@@ -24,12 +24,6 @@ export const updateUserSchema = z.strictObject(
             .transform((value) => value || null)
             .pipe(z.string().regex(/^01[3-9]\d{8}$/, { error: "Phone number must be in the format 01XXXXXXXXX" }).nullable())
             .exactOptional(),
-        address: z
-            .string({ error: "Address must be a string" })
-            .trim()
-            .max(500, { error: "Address must be at most 500 characters" })
-            .transform((value) => value || null)
-            .exactOptional(),
         role: z.enum(UserRole, { error: "Invalid role" }).exactOptional(),
         isBanned: z.stringbool({ error: "isBanned must be true or false" }).exactOptional(),
     },

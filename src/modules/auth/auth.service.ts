@@ -84,7 +84,6 @@ export const AuthService = {
                 emailVerified: true,
                 image: true,
                 role: true,
-                address: true,
                 points: true,
                 isBanned: true,
                 createdAt: true,

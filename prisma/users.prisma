@@ -9,7 +9,6 @@ model User {
   imageKey           String?
   role               UserRole             @default(CUSTOMER)
   isBanned           Boolean              @default(false)
-  address            String?
   points             Int                  @default(0)
   deletedAt          DateTime?
   createdAt          DateTime             @default(now())
