@@ -7,6 +7,7 @@ import { categoryRoutes } from "../modules/category/category.route";
 import { tagRoutes } from "../modules/tag/tag.route";
 import { faqRoutes } from "../modules/faq/faq.route";
 import { locationRoutes } from "../modules/location/location.route";
+import { productRoutes } from "../modules/product/product.route";
 
 
 const router = Router();
@@ -19,6 +20,7 @@ router.use("/categories", categoryRoutes);
 router.use("/tags", tagRoutes);
 router.use("/faqs", faqRoutes);
 router.use("/locations", locationRoutes);
+router.use("/products", productRoutes);
 
 
 export const IndexRoutes = router;
