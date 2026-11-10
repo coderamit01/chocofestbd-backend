@@ -1,40 +1,44 @@
 model Product {
-  id                 String   @id @default(uuid(7))
-  name               String
-  slug               String   @unique
-  sku                String   @unique
-  shortDescription   String?
-  description        String?  @db.Text
-  image              String?
-  imageKey           String?
-  price              Decimal  @db.Decimal(12, 2)
-  discountPrice      Decimal? @db.Decimal(12, 2)
-  discountPercentage Int?
-  stock              Int      @default(0)
-  lowStockThreshold  Int      @default(5)
+  id                String   @id @default(uuid(7))
+  name              String
+  slug              String   @unique
+  sku               String   @unique
+  shortDescription  String?
+  description       String?  @db.Text
+  image             String?
+  imageKey          String?
+  price             Decimal  @db.Decimal(12, 2)
+  discountPrice     Decimal? @db.Decimal(12, 2)
+  stock             Int      @default(0)
+  lowStockThreshold Int      @default(5)
 
-  status          ProductStatus   @default(DRAFT)
-  isFeatured      Boolean         @default(false)
-  categoryId      String
-  category        Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  brandId         String?
-  brand           Brand?          @relation(fields: [brandId], references: [id], onDelete: SetNull)
-  images          ProductImage[]
-  tags            Tag[]
-  reviews         ProductReview[]
-  orderItems      OrderItem[]
-  cartItems       CartItem[]
-  wishlists       Wishlist[]
-  soldCount       Int             @default(0)
-  averageRating   Decimal         @default(0) @db.Decimal(2, 1)
-  reviewCount     Int             @default(0)
+  status     ProductStatus @default(DRAFT)
+  isFeatured Boolean       @default(false)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brandId    String?
+  brand      Brand?   @relation(fields: [brandId], references: [id], onDelete: SetNull)
+
+  imageGallery  ProductImage[]
+  tags          Tag[]
+  reviews       ProductReview[]
+  orderItems    OrderItem[]
+  cartItems     CartItem[]
+  wishlists     Wishlist[]
+  coupons       CouponProduct[]
+  soldCount     Int             @default(0)
+  averageRating Decimal         @default(0) @db.Decimal(2, 1)
+  reviewCount   Int             @default(0)
+
   metaTitle       String?
   metaDescription String?
   metaImage       String?
   metaImageKey    String?
-  deletedAt       DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([categoryId])
   @@index([brandId])

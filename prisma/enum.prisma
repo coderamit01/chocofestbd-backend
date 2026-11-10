@@ -46,3 +46,15 @@ enum PaymentStatus {
   PARTIALLY_REFUNDED
   REFUNDED
 }
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+  FREE_DELIVERY
+}
+
+enum CouponScope {
+  ALL
+  PRODUCTS
+  CATEGORIES
+}

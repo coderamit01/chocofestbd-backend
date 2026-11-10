@@ -1,18 +1,19 @@
 model ProductReview {
-  id          String       @id @default(uuid(7))
-  productId   String
-  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  orderItemId String       @unique
-  orderItem   OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  rating      Int
-  comment     String?      @db.Text
-  image       String?
-  imageKey    String?
-  status      ReviewStatus @default(PENDING)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id String @id @default(uuid(7))
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rating     Int
+  comment    String?      @db.Text
+  image      String?
+  imageKey   String?
+  status     ReviewStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  orderItems OrderItem[]
 
   @@unique([userId, productId])
   @@index([productId, status, createdAt])
