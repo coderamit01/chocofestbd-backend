@@ -13,7 +13,6 @@ enum ProductStatus {
   DRAFT
   ACTIVE
   ARCHIVED
-  TRASH
 }
 
 enum ReviewStatus {
