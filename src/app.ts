@@ -1,4 +1,4 @@
-import express, { type NextFunction, type Request, type Response } from 'express'
+import express from 'express'
 import { auth } from './lib/auth';
 import { toNodeHandler } from 'better-auth/node';
 import cookieParser from 'cookie-parser';
@@ -6,12 +6,14 @@ import { IndexRoutes } from './routes';
 import { envVars } from './config/env';
 import cors from "cors"
 import helmet from 'helmet';
-import { ZodError } from 'zod';
-import { MulterError } from 'multer';
 import path from 'node:path';
-import { MAX_FILES } from './middlewares/upload';
+import { errorHandler } from './middlewares/errorHandler';
 
 const app = express()
+
+if (envVars.NODE_ENV === "production") {
+    app.set("trust proxy", 1)
+}
 
 app.use(helmet())
 
@@ -55,37 +57,6 @@ app.use((req, res) => {
 })
 
 
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof ZodError) {
-        return res.status(400).json({
-            success: false,
-            message: "Validation failed",
-            errors: err.issues.map((issue) => ({
-                field: issue.path.join("."),
-                message: issue.message,
-            })),
-        })
-    }
-
-    if (err instanceof MulterError) {
-        const multerMessages: Partial<Record<MulterError["code"], string>> = {
-            LIMIT_FILE_SIZE: "Each image must be 5 MB or smaller",
-            LIMIT_FILE_COUNT: `You can upload at most ${MAX_FILES} images`,
-            LIMIT_UNEXPECTED_FILE: `Unexpected file field: ${err.field}`,
-        };
-
-        return res.status(400).json({
-            success: false,
-            message: multerMessages[err.code] ?? err.message,
-        })
-    }
-
-    const statusCode = err.statusCode ?? 500;
-    const message = err.message || "Server Error";
-    res.status(statusCode).json({
-        success: false,
-        message
-    })
-})
+app.use(errorHandler)
 
 export default app;
