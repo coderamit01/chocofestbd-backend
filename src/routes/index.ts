@@ -8,6 +8,7 @@ import { tagRoutes } from "../modules/tag/tag.route";
 import { faqRoutes } from "../modules/faq/faq.route";
 import { locationRoutes } from "../modules/location/location.route";
 import { productRoutes } from "../modules/product/product.route";
+import { wishlistRoutes } from "../modules/wishlist/wishlist.route";
 
 
 const router = Router();
@@ -21,6 +22,7 @@ router.use("/tags", tagRoutes);
 router.use("/faqs", faqRoutes);
 router.use("/locations", locationRoutes);
 router.use("/products", productRoutes);
+router.use("/wishlists", wishlistRoutes);
 
 
 export const IndexRoutes = router;
