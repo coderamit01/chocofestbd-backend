@@ -17,6 +17,7 @@ const productImages = upload.fields([
 
 router.get("/", productController.getAllProducts);
 router.get("/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), productController.getTrashedProducts);
+router.get("/:productId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productController.getProductById);
 router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productImages, validateRequest(createProductSchema), productController.createProduct);
 router.put("/:productId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productImages, validateRequest(updateProductSchema), productController.updateProduct);
 router.patch("/:productId/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), productController.moveToTrash);

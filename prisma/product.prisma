@@ -12,7 +12,7 @@ model Product {
   stock             Int      @default(0)
   lowStockThreshold Int      @default(5)
 
-  status     ProductStatus @default(DRAFT)
+  status     ProductStatus @default(ACTIVE)
   isFeatured Boolean       @default(false)
 
   categoryId String

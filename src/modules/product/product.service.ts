@@ -192,6 +192,19 @@ export const productService = {
         return { products: productList, meta: paginationMeta(query, total) };
     },
 
+    getProductById: async (productId: string) => {
+        const product = await prisma.product.findFirst({
+            where: { id: productId, deletedAt: null },
+            select: productSelect,
+        });
+
+        if (!product) {
+            throw new AppError("Product not found", 404);
+        }
+
+        return product;
+    },
+
     createProduct: async (payload: CreateProductPayload, files: ProductFiles | undefined) => {
         const imageFile = files?.image?.[0];
         const metaImageFile = files?.metaImage?.[0];

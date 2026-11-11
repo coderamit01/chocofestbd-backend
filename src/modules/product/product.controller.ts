@@ -19,6 +19,19 @@ export const productController = {
         });
     }),
 
+    getProductById: catchAsync(async (req: Request, res: Response) => {
+        const { productId } = productIdParamSchema.parse(req.params);
+        const product = await productService.getProductById(productId);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Product retrieved successfully",
+            data: product,
+        });
+    }),
+
     createProduct: catchAsync(async (req: Request, res: Response) => {
         const product = await productService.createProduct(req.body, req.files as ProductFiles | undefined);
 
