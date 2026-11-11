@@ -38,6 +38,15 @@ const idList = (max: number, tooManyMessage: string) =>
     );
 
 const productFields = {
+    slug: z
+        .string({ error: "Slug must be a string" })
+        .trim()
+        .toLowerCase()
+        .max(200, { error: "Slug must be at most 200 characters" })
+        .regex(/^[\p{L}\p{M}\p{N}]+(?:-[\p{L}\p{M}\p{N}]+)*$/u, {
+            error: "Slug can only contain letters, numbers and single hyphens, like lindt-dark-chocolate-100g",
+        })
+        .exactOptional(),
     name: z
         .string({ error: "Name is required" })
         .trim()

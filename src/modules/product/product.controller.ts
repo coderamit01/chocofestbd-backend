@@ -43,8 +43,10 @@ export const productController = {
 
     getProductById: catchAsync(async (req: Request, res: Response) => {
         const { productId } = productIdParamSchema.parse(req.params);
-        const product = await productService.getProductById(productId);
+        const role = req.user!.role as UserRole;
+        const product = await productService.getProductById(productId, role);
 
+        res.setHeader("Cache-Control", "no-store");
         sendResponse(res, {
             statusCode: 200,
             success: true,

@@ -23,7 +23,7 @@ router.get("/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), produ
 
 router.get("/:slug", productController.getProductBySlug);
 
-router.get("/admin/:productId", productController.getProductById);
+router.get("/admin/:productId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productController.getProductById);
 
 router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productImages, validateRequest(createProductSchema), productController.createProduct);
 

@@ -245,10 +245,10 @@ export const productService = {
         return { products: productList, meta: paginationMeta(query, total) };
     },
 
-    getProductById: async (productId: string) => {
+    getProductById: async (productId: string, role: UserRole) => {
         const product = await prisma.product.findFirst({
-            where: { id: productId, status: ProductStatus.ACTIVE, deletedAt: null },
-            select: productSelect,
+            where: { id: productId, deletedAt: null },
+            select: { ...productSelect, costPrice: canSeeCostPrice(role) },
         });
 
         if (!product) {
@@ -321,7 +321,15 @@ export const productService = {
             }
         }
 
-        const slug = await makeSlug(payload.name);
+        if (payload.slug) {
+            const slugUsed = await prisma.product.findUnique({ where: { slug: payload.slug }, select: { id: true } });
+
+            if (slugUsed) {
+                throw new AppError("A product with this slug already exists", 409);
+            }
+        }
+
+        const slug = payload.slug ?? (await makeSlug(payload.name));
         const sku = payload.sku ?? (await makeSku());
 
         const savedFiles: string[] = [];
@@ -411,6 +419,7 @@ export const productService = {
             where: { id: productId, deletedAt: null },
             select: {
                 name: true,
+                slug: true,
                 sku: true,
                 price: true,
                 discountPrice: true,
@@ -475,6 +484,14 @@ export const productService = {
 
             if (skuUsed) {
                 throw new AppError("A product with this SKU already exists", 409);
+            }
+        }
+
+        if (payload.slug && payload.slug !== product.slug) {
+            const slugUsed = await prisma.product.findUnique({ where: { slug: payload.slug }, select: { id: true } });
+
+            if (slugUsed) {
+                throw new AppError("A product with this slug already exists", 409);
             }
         }
 
