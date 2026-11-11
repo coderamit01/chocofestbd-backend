@@ -1,9 +1,16 @@
 import { Request, Response } from "express";
 import { catchAsync } from "../../shared/catchAsync";
 import { sendResponse } from "../../shared/sendResponse";
+import { UserRole } from "../../generated/prisma/enums";
 import { productService } from "./product.service";
 import type { ProductFiles } from "./product.interface";
-import { getAllProductsQuerySchema, getTrashedProductsQuerySchema, productIdParamSchema } from "./product.validation";
+import {
+    getAdminProductsQuerySchema,
+    getAllProductsQuerySchema,
+    getTrashedProductsQuerySchema,
+    productIdParamSchema,
+    productSlugParamSchema,
+} from "./product.validation";
 
 export const productController = {
     getAllProducts: catchAsync(async (req: Request, res: Response) => {
@@ -19,11 +26,37 @@ export const productController = {
         });
     }),
 
+    getAdminProducts: catchAsync(async (req: Request, res: Response) => {
+        const query = getAdminProductsQuerySchema.parse(req.query);
+        const role = req.user!.role as UserRole;
+        const { products, meta } = await productService.getAdminProducts(query, role);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Products retrieved successfully",
+            data: products,
+            meta,
+        });
+    }),
+
     getProductById: catchAsync(async (req: Request, res: Response) => {
         const { productId } = productIdParamSchema.parse(req.params);
         const product = await productService.getProductById(productId);
 
-        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Product retrieved successfully",
+            data: product,
+        });
+    }),
+
+    getProductBySlug: catchAsync(async (req: Request, res: Response) => {
+        const { slug } = productSlugParamSchema.parse(req.params);
+        const product = await productService.getProductBySlug(slug);
+
         sendResponse(res, {
             statusCode: 200,
             success: true,
@@ -33,7 +66,8 @@ export const productController = {
     }),
 
     createProduct: catchAsync(async (req: Request, res: Response) => {
-        const product = await productService.createProduct(req.body, req.files as ProductFiles | undefined);
+        const role = req.user!.role as UserRole;
+        const product = await productService.createProduct(req.body, req.files as ProductFiles | undefined, role);
 
         sendResponse(res, {
             statusCode: 201,
@@ -45,7 +79,8 @@ export const productController = {
 
     updateProduct: catchAsync(async (req: Request, res: Response) => {
         const { productId } = productIdParamSchema.parse(req.params);
-        const product = await productService.updateProduct(productId, req.body, req.files as ProductFiles | undefined);
+        const role = req.user!.role as UserRole;
+        const product = await productService.updateProduct(productId, req.body, req.files as ProductFiles | undefined, role);
 
         sendResponse(res, {
             statusCode: 200,

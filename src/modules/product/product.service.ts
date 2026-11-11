@@ -3,13 +3,14 @@ import { prisma } from "../../lib/prisma";
 import { AppError } from "../../helpers/AppError";
 import { generateSlug } from "../../helpers/generateSlug";
 import type { Prisma } from "../../generated/prisma/client";
-import { ProductStatus } from "../../generated/prisma/enums";
+import { ProductStatus, UserRole } from "../../generated/prisma/enums";
 import { deleteFile, getFileUrl, getThumbnailUrl, uploadFile } from "../../lib/storage";
 import { getPagination, paginationMeta } from "../../shared/pagination";
 import { buildRangeFilter, buildSearchFilter } from "../../shared/filters";
 import type { ProductFiles } from "./product.interface";
 import type {
     CreateProductPayload,
+    GetAdminProductsQuery,
     GetAllProductsQuery,
     GetTrashedProductsQuery,
     ProductSortOption,
@@ -17,6 +18,10 @@ import type {
 } from "./product.validation";
 
 const MAX_GALLERY_IMAGES = 8;
+
+const COST_PRICE_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT];
+
+const canSeeCostPrice = (role: UserRole | undefined) => role !== undefined && COST_PRICE_ROLES.includes(role);
 
 const productSelect = {
     id: true,
@@ -65,6 +70,14 @@ const productListSelect = {
     brand: { select: { id: true, name: true, slug: true } },
 } satisfies Prisma.ProductSelect;
 
+const productAdminListSelect = {
+    ...productListSelect,
+    sku: true,
+    status: true,
+    lowStockThreshold: true,
+    updatedAt: true,
+} satisfies Prisma.ProductSelect;
+
 const productSortOrders: Record<ProductSortOption, Prisma.ProductOrderByWithRelationInput[]> = {
     newest: [{ createdAt: "desc" }],
     price_low: [{ price: "asc" }],
@@ -108,69 +121,82 @@ const makeSku = async () => {
     throw new AppError("Could not create a SKU, please enter one", 500);
 };
 
+const buildProductFilters = async (query: GetAllProductsQuery, onlyActiveCategories: boolean) => {
+    const { searchTerm, category, brand, tag, minPrice, maxPrice, minRating, inStock, isFeatured } = query;
+
+    const filters: Prisma.ProductWhereInput[] = [
+        { deletedAt: null },
+        buildSearchFilter<Prisma.ProductWhereInput>(searchTerm, ["name", "sku"]),
+    ];
+
+    if (category) {
+        const categoryWhere: Prisma.CategoryWhereInput = { deletedAt: null };
+
+        if (onlyActiveCategories) {
+            categoryWhere.isActive = true;
+        }
+
+        const foundCategory = await prisma.category.findFirst({
+            where: { ...categoryWhere, slug: category },
+            select: {
+                id: true,
+                children: {
+                    where: categoryWhere,
+                    select: { id: true },
+                },
+            },
+        });
+
+        if (!foundCategory) {
+            throw new AppError("Category not found", 404);
+        }
+
+        const categoryIds = [foundCategory.id, ...foundCategory.children.map((child) => child.id)];
+        filters.push({ categoryId: { in: categoryIds } });
+    }
+
+    if (brand) {
+        filters.push({ brand: { slug: brand, deletedAt: null } });
+    }
+
+    if (tag) {
+        filters.push({ tags: { some: { slug: tag } } });
+    }
+
+    const priceRange = buildRangeFilter(minPrice, maxPrice);
+
+    if (priceRange) {
+        filters.push({
+            OR: [
+                { discountPrice: null, price: priceRange },
+                { discountPrice: priceRange },
+            ],
+        });
+    }
+
+    if (minRating !== undefined) {
+        filters.push({ averageRating: { gte: minRating } });
+    }
+
+    if (inStock === true) {
+        filters.push({ stock: { gt: 0 } });
+    }
+
+    if (inStock === false) {
+        filters.push({ stock: 0 });
+    }
+
+    if (isFeatured !== undefined) {
+        filters.push({ isFeatured });
+    }
+
+    return filters;
+};
+
 export const productService = {
     getAllProducts: async (query: GetAllProductsQuery) => {
-        const { searchTerm, category, brand, tag, minPrice, maxPrice, minRating, inStock, isFeatured, sortBy } = query;
-
-        const filters: Prisma.ProductWhereInput[] = [
-            { status: ProductStatus.ACTIVE, deletedAt: null },
-            buildSearchFilter<Prisma.ProductWhereInput>(searchTerm, ["name", "sku"]),
-        ];
-
-        if (category) {
-            const foundCategory = await prisma.category.findFirst({
-                where: { slug: category, isActive: true, deletedAt: null },
-                select: {
-                    id: true,
-                    children: {
-                        where: { isActive: true, deletedAt: null },
-                        select: { id: true },
-                    },
-                },
-            });
-
-            if (!foundCategory) {
-                throw new AppError("Category not found", 404);
-            }
-
-            const categoryIds = [foundCategory.id, ...foundCategory.children.map((child) => child.id)];
-            filters.push({ categoryId: { in: categoryIds } });
-        }
-
-        if (brand) {
-            filters.push({ brand: { slug: brand, deletedAt: null } });
-        }
-
-        if (tag) {
-            filters.push({ tags: { some: { slug: tag } } });
-        }
-
-        const priceRange = buildRangeFilter(minPrice, maxPrice);
-
-        if (priceRange) {
-            filters.push({
-                OR: [
-                    { discountPrice: null, price: priceRange },
-                    { discountPrice: priceRange },
-                ],
-            });
-        }
-
-        if (minRating !== undefined) {
-            filters.push({ averageRating: { gte: minRating } });
-        }
-
-        if (inStock === true) {
-            filters.push({ stock: { gt: 0 } });
-        }
-
-        if (inStock === false) {
-            filters.push({ stock: 0 });
-        }
-
-        if (isFeatured !== undefined) {
-            filters.push({ isFeatured });
-        }
+        const filters = await buildProductFilters(query, true);
+        filters.push({ status: ProductStatus.ACTIVE });
 
         const where: Prisma.ProductWhereInput = { AND: filters };
 
@@ -178,7 +204,34 @@ export const productService = {
             prisma.product.findMany({
                 where,
                 select: productListSelect,
-                orderBy: productSortOrders[sortBy],
+                orderBy: productSortOrders[query.sortBy],
+                ...getPagination(query),
+            }),
+            prisma.product.count({ where }),
+        ]);
+
+        const productList = products.map(({ imageKey, ...product }) => ({
+            ...product,
+            thumbnail: getThumbnailUrl(imageKey),
+        }));
+
+        return { products: productList, meta: paginationMeta(query, total) };
+    },
+
+    getAdminProducts: async (query: GetAdminProductsQuery, role: UserRole) => {
+        const filters = await buildProductFilters(query, false);
+
+        if (query.status) {
+            filters.push({ status: query.status });
+        }
+
+        const where: Prisma.ProductWhereInput = { AND: filters };
+
+        const [products, total] = await prisma.$transaction([
+            prisma.product.findMany({
+                where,
+                select: { ...productAdminListSelect, costPrice: canSeeCostPrice(role) },
+                orderBy: productSortOrders[query.sortBy],
                 ...getPagination(query),
             }),
             prisma.product.count({ where }),
@@ -194,7 +247,7 @@ export const productService = {
 
     getProductById: async (productId: string) => {
         const product = await prisma.product.findFirst({
-            where: { id: productId, deletedAt: null },
+            where: { id: productId, status: ProductStatus.ACTIVE, deletedAt: null },
             select: productSelect,
         });
 
@@ -205,13 +258,31 @@ export const productService = {
         return product;
     },
 
-    createProduct: async (payload: CreateProductPayload, files: ProductFiles | undefined) => {
+    getProductBySlug: async (slug: string) => {
+        const product = await prisma.product.findFirst({
+            where: { slug, status: ProductStatus.ACTIVE, deletedAt: null },
+            select: productSelect,
+        });
+
+        if (!product) {
+            throw new AppError("Product not found", 404);
+        }
+
+        return product;
+    },
+
+    createProduct: async (payload: CreateProductPayload, files: ProductFiles | undefined, role: UserRole) => {
         const imageFile = files?.image?.[0];
         const metaImageFile = files?.metaImage?.[0];
         const galleryFiles = files?.gallery ?? [];
+        const status = payload.status ?? ProductStatus.ACTIVE;
 
-        if (payload.status === ProductStatus.ACTIVE && !imageFile) {
-            throw new AppError("An active product needs a main image", 400);
+        if (payload.costPrice !== undefined && !canSeeCostPrice(role)) {
+            throw new AppError("You are not allowed to set the cost price", 403);
+        }
+
+        if (status === ProductStatus.ACTIVE && !imageFile) {
+            throw new AppError("An active product needs a main image. Upload an image or save it as a draft", 400);
         }
 
         const category = await prisma.category.findFirst({
@@ -285,6 +356,7 @@ export const productService = {
             return await prisma.product.create({
                 data: {
                     ...productData,
+                    status,
                     slug,
                     sku,
                     image: getFileUrl(imageKey),
@@ -303,7 +375,7 @@ export const productService = {
                         })),
                     },
                 },
-                select: productSelect,
+                select: { ...productSelect, costPrice: canSeeCostPrice(role) },
             });
         } catch (error) {
             for (const key of savedFiles) {
@@ -314,7 +386,12 @@ export const productService = {
         }
     },
 
-    updateProduct: async (productId: string, payload: UpdateProductPayload, files: ProductFiles | undefined) => {
+    updateProduct: async (
+        productId: string,
+        payload: UpdateProductPayload,
+        files: ProductFiles | undefined,
+        role: UserRole,
+    ) => {
         const imageFile = files?.image?.[0];
         const metaImageFile = files?.metaImage?.[0];
         const galleryFiles = files?.gallery ?? [];
@@ -324,6 +401,10 @@ export const productService = {
 
         if (!hasFiles && Object.keys(payload).length === 0) {
             throw new AppError("Provide at least one field to update", 400);
+        }
+
+        if (payload.costPrice !== undefined && !canSeeCostPrice(role)) {
+            throw new AppError("You are not allowed to set the cost price", 403);
         }
 
         const product = await prisma.product.findFirst({
@@ -472,7 +553,7 @@ export const productService = {
             const updatedProduct = await prisma.product.update({
                 where: { id: productId },
                 data,
-                select: productSelect,
+                select: { ...productSelect, costPrice: canSeeCostPrice(role) },
             });
 
             const oldKeys = [product.imageKey, product.metaImageKey, ...galleryToRemove.map((image) => image.key)];

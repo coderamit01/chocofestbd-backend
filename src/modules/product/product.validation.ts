@@ -59,6 +59,12 @@ const productFields = {
         .transform((value) => value || null)
         .pipe(money("Discount price").nullable())
         .exactOptional(),
+    costPrice: z
+        .string({ error: "Cost price must be a string" })
+        .trim()
+        .transform((value) => value || null)
+        .pipe(money("Cost price").nullable())
+        .exactOptional(),
     stock: wholeNumber("Stock").exactOptional(),
     lowStockThreshold: wholeNumber("Low stock threshold").exactOptional(),
     status: z
@@ -80,6 +86,10 @@ const productFields = {
 
 export const productIdParamSchema = z.object({
     productId: z.string({ error: "Product id is required" }).trim().min(1, { error: "Product id is required" }),
+});
+
+export const productSlugParamSchema = z.object({
+    slug: z.string({ error: "Slug is required" }).trim().min(1, { error: "Slug is required" }),
 });
 
 export const createProductSchema = z
@@ -108,29 +118,46 @@ export const updateProductSchema = z
 
 export const productSortOptions = ["newest", "price_low", "price_high", "popular", "rating"] as const;
 
+const productListFields = {
+    searchTerm: searchTermQuery,
+    category: slugQuery("Category"),
+    brand: slugQuery("Brand"),
+    tag: slugQuery("Tag"),
+    minPrice: numberQuery("Min price"),
+    maxPrice: numberQuery("Max price"),
+    minRating: z.coerce
+        .number({ error: "Min rating must be a number" })
+        .min(1, { error: "Min rating must be between 1 and 5" })
+        .max(5, { error: "Min rating must be between 1 and 5" })
+        .optional(),
+    inStock: booleanQuery("inStock"),
+    isFeatured: booleanQuery("isFeatured"),
+    sortBy: z
+        .enum(productSortOptions, { error: `Sort by must be one of: ${productSortOptions.join(", ")}` })
+        .default("newest"),
+};
+
+const isPriceRangeValid = (query: { minPrice?: number | undefined; maxPrice?: number | undefined }) =>
+    query.minPrice === undefined || query.maxPrice === undefined || query.minPrice <= query.maxPrice;
+
+const priceRangeError = {
+    path: ["minPrice"],
+    error: "Min price cannot be greater than max price",
+};
+
 export const getAllProductsQuerySchema = paginationQuerySchema
+    .extend(productListFields)
+    .refine(isPriceRangeValid, priceRangeError);
+
+export const getAdminProductsQuerySchema = paginationQuerySchema
     .extend({
-        searchTerm: searchTermQuery,
-        category: slugQuery("Category"),
-        brand: slugQuery("Brand"),
-        tag: slugQuery("Tag"),
-        minPrice: numberQuery("Min price"),
-        maxPrice: numberQuery("Max price"),
-        minRating: z.coerce
-            .number({ error: "Min rating must be a number" })
-            .min(1, { error: "Min rating must be between 1 and 5" })
-            .max(5, { error: "Min rating must be between 1 and 5" })
+        ...productListFields,
+        status: z
+            .enum(ProductStatus, { error: "Status must be DRAFT, ACTIVE or ARCHIVED" })
             .optional(),
-        inStock: booleanQuery("inStock"),
-        isFeatured: booleanQuery("isFeatured"),
-        sortBy: z
-            .enum(productSortOptions, { error: `Sort by must be one of: ${productSortOptions.join(", ")}` })
-            .default("newest"),
     })
-    .refine((query) => query.minPrice === undefined || query.maxPrice === undefined || query.minPrice <= query.maxPrice, {
-        path: ["minPrice"],
-        error: "Min price cannot be greater than max price",
-    });
+    .refine(isPriceRangeValid, priceRangeError);
+
 
 export const getTrashedProductsQuerySchema = paginationQuerySchema.extend({
     searchTerm: searchTermQuery,
@@ -138,6 +165,7 @@ export const getTrashedProductsQuerySchema = paginationQuerySchema.extend({
 
 export type CreateProductPayload = z.infer<typeof createProductSchema>;
 export type GetTrashedProductsQuery = z.infer<typeof getTrashedProductsQuerySchema>;
+export type GetAdminProductsQuery = z.infer<typeof getAdminProductsQuerySchema>;
 export type UpdateProductPayload = z.infer<typeof updateProductSchema>;
 export type GetAllProductsQuery = z.infer<typeof getAllProductsQuerySchema>;
 export type ProductSortOption = (typeof productSortOptions)[number];
