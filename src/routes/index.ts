@@ -11,6 +11,7 @@ import { productRoutes } from "../modules/product/product.route";
 import { wishlistRoutes } from "../modules/wishlist/wishlist.route";
 import { deliveryZoneRoutes } from "../modules/deliveryZone/deliveryZone.route";
 import { addressRoutes } from "../modules/address/address.route";
+import { couponRoutes } from "../modules/coupon/coupon.route";
 
 
 const router = Router();
@@ -27,6 +28,7 @@ router.use("/products", productRoutes);
 router.use("/wishlists", wishlistRoutes);
 router.use("/delivery-zones", deliveryZoneRoutes);
 router.use("/addresses", addressRoutes);
+router.use("/coupons", couponRoutes);
 
 
 export const IndexRoutes = router;
