@@ -92,6 +92,25 @@ export const userService = {
             throw new AppError("User not found", 404);
         }
 
+        if (actor.id === userId) {
+            if (payload.role !== undefined && payload.role !== target.role) {
+                throw new AppError("You cannot change your own role", 403);
+            }
+            if (payload.isBanned === true) {
+                throw new AppError("You cannot ban your own account", 403);
+            }
+        }
+
+        if (target.role === UserRole.SUPER_ADMIN && payload.role !== undefined && payload.role !== UserRole.SUPER_ADMIN) {
+            const superAdminCount = await prisma.user.count({
+                where: { role: UserRole.SUPER_ADMIN, deletedAt: null },
+            });
+
+            if (superAdminCount <= 1) {
+                throw new AppError("The last super admin cannot be demoted", 409);
+            }
+        }
+
         if (actor.role === UserRole.ADMIN) {
             if (target.role === UserRole.SUPER_ADMIN) {
                 throw new AppError("Admin cannot update a super admin", 403);

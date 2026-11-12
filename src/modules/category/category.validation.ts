@@ -61,6 +61,10 @@ export const getAllCategoriesQuerySchema = paginationQuerySchema.extend({
     searchTerm: z.string().trim().min(1).optional(),
 });
 
+export const categorySlugParamSchema = z.object({
+    slug: z.string({ error: "Category slug is required" }).trim().min(1, { error: "Category slug is required" }),
+});
+
 export type CreateCategoryPayload = z.infer<typeof createCategorySchema>;
 export type UpdateCategoryPayload = z.infer<typeof updateCategorySchema>;
 export type GetAllCategoriesQuery = z.infer<typeof getAllCategoriesQuerySchema>;

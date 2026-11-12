@@ -3,7 +3,7 @@ import { catchAsync } from "../../shared/catchAsync";
 import { sendResponse } from "../../shared/sendResponse";
 import { categoryService } from "./category.service";
 import type { CategoryFiles } from "./category.interface";
-import { categoryIdParamSchema, getAllCategoriesQuerySchema } from "./category.validation";
+import { categoryIdParamSchema, categorySlugParamSchema, getAllCategoriesQuerySchema } from "./category.validation";
 
 export const categoryController = {
     createCategory: catchAsync(async (req: Request, res: Response) => {
@@ -101,6 +101,29 @@ export const categoryController = {
             statusCode: 200,
             success: true,
             message: "Category permanently deleted",
+        });
+    }),
+
+    getCategoryTree: catchAsync(async (_req: Request, res: Response) => {
+        const categories = await categoryService.getCategoryTree();
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Categories retrieved successfully",
+            data: categories,
+        });
+    }),
+
+    getPublicCategoryBySlug: catchAsync(async (req: Request, res: Response) => {
+        const { slug } = categorySlugParamSchema.parse(req.params);
+        const category = await categoryService.getPublicCategoryBySlug(slug);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Category retrieved successfully",
+            data: category,
         });
     }),
 };

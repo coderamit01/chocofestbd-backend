@@ -9,8 +9,9 @@ import { createFaqSchema, updateFaqSchema } from "./faq.validation";
 const router = Router();
 
 router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(createFaqSchema), faqController.createFaq);
-router.get("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), faqController.getAllFaqs);
-router.get("/:faqId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), faqController.getFaqById);
+router.get("/", faqController.getPublicFaqs);
+router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), faqController.getAllFaqs);
+router.get("/admin/:faqId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), faqController.getFaqById);
 router.put("/:faqId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(updateFaqSchema), faqController.updateFaq);
 router.delete("/:faqId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), faqController.deleteFaq);
 

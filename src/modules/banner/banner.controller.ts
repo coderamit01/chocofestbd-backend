@@ -6,6 +6,7 @@ import {
     bannerCategoryIdParamSchema,
     bannerIdParamSchema,
     getAllBannersQuerySchema,
+    getPublicBannersQuerySchema,
 } from "./banner.validation";
 
 export const bannerController = {
@@ -126,6 +127,18 @@ export const bannerController = {
             statusCode: 200,
             success: true,
             message: "Banner deleted successfully",
+        });
+    }),
+
+    getPublicBanners: catchAsync(async (req: Request, res: Response) => {
+        const query = getPublicBannersQuerySchema.parse(req.query);
+        const banners = await bannerService.getPublicBanners(query);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Banners retrieved successfully",
+            data: banners,
         });
     }),
 }

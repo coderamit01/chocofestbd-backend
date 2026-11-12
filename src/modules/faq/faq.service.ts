@@ -87,4 +87,12 @@ export const faqService = {
 
         await prisma.faq.delete({ where: { id: faqId } });
     },
+
+    getPublicFaqs: async () => {
+        return prisma.faq.findMany({
+            where: { isActive: true },
+            select: { id: true, question: true, answer: true, sortOrder: true },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        });
+    },
 };

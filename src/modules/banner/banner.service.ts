@@ -7,6 +7,7 @@ import type {
     BannerCategoryPayload,
     CreateBannerPayload,
     GetAllBannersQuery,
+    GetPublicBannersQuery,
     UpdateBannerPayload,
 } from "./banner.validation";
 
@@ -235,5 +236,23 @@ export const bannerService = {
         }
 
         await prisma.banner.delete({ where: { id: bannerId } });
+    },
+
+    getPublicBanners: async (query: GetPublicBannersQuery) => {
+        return prisma.banner.findMany({
+            where: {
+                isActive: true,
+                ...(query.category && { category: { name: { equals: query.category, mode: "insensitive" } } }),
+            },
+            select: {
+                id: true,
+                title: true,
+                image: true,
+                link: true,
+                sortOrder: true,
+                category: { select: { id: true, name: true } },
+            },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+        });
     },
 }

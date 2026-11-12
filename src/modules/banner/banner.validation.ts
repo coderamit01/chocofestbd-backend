@@ -76,7 +76,12 @@ export const getAllBannersQuerySchema = paginationQuerySchema.extend({
     searchTerm: z.string().trim().min(1).optional(),
 });
 
+export const getPublicBannersQuerySchema = z.object({
+    category: z.string().trim().min(1, { error: "Category cannot be empty" }).max(50).optional(),
+});
+
 export type BannerCategoryPayload = z.infer<typeof bannerCategorySchema>;
 export type CreateBannerPayload = z.infer<typeof createBannerSchema>;
 export type UpdateBannerPayload = z.infer<typeof updateBannerSchema>;
+export type GetPublicBannersQuery = z.infer<typeof getPublicBannersQuerySchema>;
 export type GetAllBannersQuery = z.infer<typeof getAllBannersQuerySchema>;

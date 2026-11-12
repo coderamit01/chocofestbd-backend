@@ -16,8 +16,9 @@ router.put("/categories/:categoryId", Authentication(UserRole.SUPER_ADMIN, UserR
 router.delete("/categories/:categoryId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), bannerController.deleteBannerCategory);
 
 router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), upload.single("image"), validateRequest(createBannerSchema), bannerController.createBanner);
-router.get("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), bannerController.getAllBanners);
-router.get("/:bannerId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), bannerController.getBannerById);
+router.get("/", bannerController.getPublicBanners);
+router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), bannerController.getAllBanners);
+router.get("/admin/:bannerId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), bannerController.getBannerById);
 router.put("/:bannerId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), upload.single("image"), validateRequest(updateBannerSchema), bannerController.updateBanner);
 router.delete("/:bannerId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), bannerController.deleteBanner);
 

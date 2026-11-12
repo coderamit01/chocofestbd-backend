@@ -65,4 +65,15 @@ export const faqController = {
             message: "FAQ deleted successfully",
         });
     }),
+
+    getPublicFaqs: catchAsync(async (_req: Request, res: Response) => {
+        const faqs = await faqService.getPublicFaqs();
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "FAQs retrieved successfully",
+            data: faqs,
+        });
+    }),
 };

@@ -3,7 +3,7 @@ import { catchAsync } from "../../shared/catchAsync";
 import { sendResponse } from "../../shared/sendResponse";
 import { brandService } from "./brand.service";
 import type { BrandFiles } from "./brand.interface";
-import { brandIdParamSchema, getAllBrandsQuerySchema } from "./brand.validation";
+import { brandIdParamSchema, brandSlugParamSchema, getAllBrandsQuerySchema } from "./brand.validation";
 
 export const brandController = {
     createBrand: catchAsync(async (req: Request, res: Response) => {
@@ -101,6 +101,29 @@ export const brandController = {
             statusCode: 200,
             success: true,
             message: "Brand permanently deleted",
+        });
+    }),
+
+    getPublicBrands: catchAsync(async (_req: Request, res: Response) => {
+        const brands = await brandService.getPublicBrands();
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Brands retrieved successfully",
+            data: brands,
+        });
+    }),
+
+    getPublicBrandBySlug: catchAsync(async (req: Request, res: Response) => {
+        const { slug } = brandSlugParamSchema.parse(req.params);
+        const brand = await brandService.getPublicBrandBySlug(slug);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Brand retrieved successfully",
+            data: brand,
         });
     }),
 };

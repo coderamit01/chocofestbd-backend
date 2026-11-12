@@ -51,6 +51,10 @@ export const getAllBrandsQuerySchema = paginationQuerySchema.extend({
     searchTerm: z.string().trim().min(1).optional(),
 });
 
+export const brandSlugParamSchema = z.object({
+    slug: z.string({ error: "Brand slug is required" }).trim().min(1, { error: "Brand slug is required" }),
+});
+
 export type CreateBrandPayload = z.infer<typeof createBrandSchema>;
 export type UpdateBrandPayload = z.infer<typeof updateBrandSchema>;
 export type GetAllBrandsQuery = z.infer<typeof getAllBrandsQuerySchema>;

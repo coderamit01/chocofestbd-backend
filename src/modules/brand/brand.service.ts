@@ -6,6 +6,7 @@ import { paginationMeta, getPagination } from "../../shared/pagination";
 import { deleteFile, getFileUrl, uploadFile } from "../../lib/storage";
 import type { BrandFiles } from "./brand.interface";
 import type { CreateBrandPayload, GetAllBrandsQuery, UpdateBrandPayload } from "./brand.validation";
+import { ProductStatus } from "../../generated/prisma/enums";
 
 const brandSelect = {
     id: true,
@@ -81,6 +82,19 @@ const findBrandOrThrow = async (brandId: string, trashed: boolean) => {
 
     return brand;
 };
+
+const publicBrandSelect = {
+    id: true,
+    name: true,
+    slug: true,
+    logo: true,
+    description: true,
+    country: true,
+    metaTitle: true,
+    metaDescription: true,
+    metaImage: true,
+    _count: { select: { products: { where: { status: ProductStatus.ACTIVE, deletedAt: null } } } },
+} satisfies Prisma.BrandSelect;
 
 export const brandService = {
     createBrand: async (payload: CreateBrandPayload, files: BrandFiles | undefined) => {
@@ -242,5 +256,26 @@ export const brandService = {
         await prisma.brand.delete({ where: { id: brandId } });
 
         await deleteBrandImages(brand);
+    },
+
+    getPublicBrands: async () => {
+        return prisma.brand.findMany({
+            where: { isActive: true, deletedAt: null },
+            select: publicBrandSelect,
+            orderBy: { name: "asc" },
+        });
+    },
+
+    getPublicBrandBySlug: async (slug: string) => {
+        const brand = await prisma.brand.findFirst({
+            where: { slug, isActive: true, deletedAt: null },
+            select: publicBrandSelect,
+        });
+
+        if (!brand) {
+            throw new AppError("Brand not found", 404);
+        }
+
+        return brand;
     },
 };

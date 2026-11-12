@@ -102,6 +102,16 @@ const deleteCategoryImages = async (keys: { imageKey: string | null; metaImageKe
     await Promise.all([deleteFile(keys.imageKey), deleteFile(keys.metaImageKey)]);
 };
 
+const publicCategorySelect = {
+    id: true,
+    name: true,
+    slug: true,
+    description: true,
+    image: true,
+    parentId: true,
+    sortOrder: true,
+} satisfies Prisma.CategorySelect;
+
 export const categoryService = {
     createCategory: async (payload: CreateCategoryPayload, files: CategoryFiles | undefined) => {
         const slug = buildSlug(payload.name);
@@ -322,5 +332,54 @@ export const categoryService = {
         await prisma.category.delete({ where: { id: categoryId } });
 
         await deleteCategoryImages(category);
+    },
+
+    getCategoryTree: async () => {
+        const categories = await prisma.category.findMany({
+            where: { isActive: true, deletedAt: null },
+            select: publicCategorySelect,
+            orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        });
+
+        type CategoryNode = (typeof categories)[number] & { children: CategoryNode[] };
+
+        const nodes = new Map<string, CategoryNode>(
+            categories.map((category) => [category.id, { ...category, children: [] }]),
+        );
+        const roots: CategoryNode[] = [];
+
+        for (const node of nodes.values()) {
+            if (!node.parentId) {
+                roots.push(node);
+            } else {
+                nodes.get(node.parentId)?.children.push(node);
+            }
+        }
+
+        return roots;
+    },
+
+    getPublicCategoryBySlug: async (slug: string) => {
+        const category = await prisma.category.findFirst({
+            where: { slug, isActive: true, deletedAt: null },
+            select: {
+                ...publicCategorySelect,
+                metaTitle: true,
+                metaDescription: true,
+                metaImage: true,
+                parent: { select: { id: true, name: true, slug: true } },
+                children: {
+                    where: { isActive: true, deletedAt: null },
+                    select: { id: true, name: true, slug: true, image: true },
+                    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+                },
+            },
+        });
+
+        if (!category) {
+            throw new AppError("Category not found", 404);
+        }
+
+        return category;
     },
 };
