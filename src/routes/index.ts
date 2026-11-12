@@ -9,6 +9,7 @@ import { faqRoutes } from "../modules/faq/faq.route";
 import { locationRoutes } from "../modules/location/location.route";
 import { productRoutes } from "../modules/product/product.route";
 import { wishlistRoutes } from "../modules/wishlist/wishlist.route";
+import { deliveryZoneRoutes } from "../modules/deliveryZone/deliveryZone.route";
 
 
 const router = Router();
@@ -23,6 +24,7 @@ router.use("/faqs", faqRoutes);
 router.use("/locations", locationRoutes);
 router.use("/products", productRoutes);
 router.use("/wishlists", wishlistRoutes);
+router.use("/delivery-zones", deliveryZoneRoutes);
 
 
 export const IndexRoutes = router;
