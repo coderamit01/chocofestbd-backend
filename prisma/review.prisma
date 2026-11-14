@@ -6,14 +6,14 @@ model ProductReview {
   userId    String
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  rating     Int
-  comment    String?      @db.Text
-  image      String?
-  imageKey   String?
-  status     ReviewStatus @default(PENDING)
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
-  orderItems OrderItem[]
+  rating             Int
+  comment            String?      @db.Text
+  image              String?
+  imageKey           String?
+  isVerifiedPurchase Boolean      @default(false)
+  status             ReviewStatus @default(PENDING)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   @@unique([userId, productId])
   @@index([productId, status, createdAt])
