@@ -1,17 +1,19 @@
 model Product {
-  id                String   @id @default(uuid(7))
+  id                String      @id @default(uuid(7))
   name              String
-  slug              String   @unique
-  sku               String   @unique
+  slug              String      @unique
+  sku               String      @unique
   shortDescription  String?
-  description       String?  @db.Text
+  description       String?     @db.Text
   image             String?
   imageKey          String?
-  price             Decimal  @db.Decimal(12, 2)
-  discountPrice     Decimal? @db.Decimal(12, 2)
-  costPrice         Decimal? @db.Decimal(12, 2)
-  stock             Int      @default(0)
-  lowStockThreshold Int      @default(5)
+  price             Decimal     @db.Decimal(12, 2)
+  discountPrice     Decimal?    @db.Decimal(12, 2)
+  costPrice         Decimal?    @db.Decimal(12, 2)
+  stock             Int         @default(0)
+  lowStockThreshold Int         @default(5)
+  manageStock       Boolean     @default(true)
+  stockStatus       StockStatus @default(IN_STOCK)
 
   status     ProductStatus @default(ACTIVE)
   isFeatured Boolean       @default(false)

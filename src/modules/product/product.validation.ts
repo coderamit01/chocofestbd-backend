@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { ProductStatus } from "../../generated/prisma/enums";
+import { ProductStatus, StockStatus } from "../../generated/prisma/enums";
 import { paginationQuerySchema } from "../../shared/pagination";
 import { booleanQuery, numberQuery, searchTermQuery, slugQuery } from "../../shared/filters";
 
@@ -76,6 +76,8 @@ const productFields = {
         .exactOptional(),
     stock: wholeNumber("Stock").exactOptional(),
     lowStockThreshold: wholeNumber("Low stock threshold").exactOptional(),
+    manageStock: z.stringbool({ error: "manageStock must be true or false" }).exactOptional(),
+    stockStatus: z.enum(StockStatus, { error: "Stock status must be IN_STOCK or OUT_OF_STOCK" }).exactOptional(),
     status: z
         .enum([ProductStatus.DRAFT, ProductStatus.ACTIVE, ProductStatus.ARCHIVED], {
             error: "Status must be DRAFT, ACTIVE or ARCHIVED",

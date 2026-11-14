@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { AppError } from "../../helpers/AppError";
 import { Prisma } from "../../generated/prisma/client";
 import { ProductStatus } from "../../generated/prisma/enums";
+import { getStockError, getStockLimit, inStockWhere, isInStock, stockSelect } from "../../helpers/stock";
 import { MAX_CART_ITEMS, MAX_ITEM_QUANTITY } from "./cart.validation";
 import type { AddToCartPayload, MergeCartPayload, UpdateCartItemPayload } from "./cart.validation";
 
@@ -22,7 +23,7 @@ const cartItemSelect = {
             image: true,
             price: true,
             discountPrice: true,
-            stock: true,
+            ...stockSelect,
             status: true,
             deletedAt: true,
         },
@@ -41,15 +42,8 @@ const buildCart = (items: CartItemRow[]) => {
         const unitPrice = onSale ? product.discountPrice! : product.price;
         const lineTotal = unitPrice.mul(item.quantity);
 
-        let issue: string | null = null;
-
-        if (!isLive) {
-            issue = "This product is no longer available";
-        } else if (product.stock <= 0) {
-            issue = "Out of stock";
-        } else if (item.quantity > product.stock) {
-            issue = `Only ${product.stock} left in stock`;
-        }
+        const issue = isLive ? getStockError(product, item.quantity) : "This product is no longer available";
+        const limit = isLive ? getStockLimit(product) : 0;
 
         if (!issue) {
             subtotal = subtotal.add(lineTotal);
@@ -70,7 +64,8 @@ const buildCart = (items: CartItemRow[]) => {
                 slug: product.slug,
                 sku: product.sku,
                 image: product.image,
-                stock: isLive ? product.stock : 0,
+                inStock: isLive && isInStock(product),
+                maxQuantity: Math.min(limit ?? MAX_ITEM_QUANTITY, MAX_ITEM_QUANTITY),
             },
         };
     });
@@ -98,7 +93,7 @@ const getOrCreateCartId = async (userId: string) => {
 const findLiveProduct = async (productId: string) => {
     const product = await prisma.product.findFirst({
         where: { ...liveProduct, id: productId },
-        select: { id: true, stock: true },
+        select: { id: true, ...stockSelect },
     });
 
     if (!product) {
@@ -108,13 +103,11 @@ const findLiveProduct = async (productId: string) => {
     return product;
 };
 
-const checkStock = (stock: number, quantity: number) => {
-    if (stock <= 0) {
-        throw new AppError("This product is out of stock", 400);
-    }
+const checkStock = (product: Awaited<ReturnType<typeof findLiveProduct>>, quantity: number) => {
+    const error = getStockError(product, quantity);
 
-    if (quantity > stock) {
-        throw new AppError(`Only ${stock} left in stock`, 400);
+    if (error) {
+        throw new AppError(error === "Out of stock" ? "This product is out of stock" : error, 400);
     }
 
     if (quantity > MAX_ITEM_QUANTITY) {
@@ -151,7 +144,7 @@ export const cartService = {
         }
 
         const quantity = (existing?.quantity ?? 0) + payload.quantity;
-        checkStock(product.stock, quantity);
+        checkStock(product, quantity);
 
         await prisma.cartItem.upsert({
             where: { cartId_productId: { cartId, productId: product.id } },
@@ -173,7 +166,7 @@ export const cartService = {
         }
 
         const product = await findLiveProduct(productId);
-        checkStock(product.stock, payload.quantity);
+        checkStock(product, payload.quantity);
 
         await prisma.cartItem.update({
             where: { id: item.id },
@@ -207,8 +200,8 @@ export const cartService = {
         }
 
         const products = await prisma.product.findMany({
-            where: { ...liveProduct, id: { in: [...quantities.keys()] }, stock: { gt: 0 } },
-            select: { id: true, stock: true },
+            where: { AND: [liveProduct, inStockWhere, { id: { in: [...quantities.keys()] } }] },
+            select: { id: true, ...stockSelect },
         });
 
         const cartId = await getOrCreateCartId(userId);
@@ -228,7 +221,8 @@ export const cartService = {
         for (const product of products) {
             const wanted = quantities.get(product.id)!;
             const existingQuantity = current.get(product.id);
-            const quantity = Math.min(Math.max(existingQuantity ?? 0, wanted), product.stock, MAX_ITEM_QUANTITY);
+            const limit = getStockLimit(product) ?? MAX_ITEM_QUANTITY;
+            const quantity = Math.min(Math.max(existingQuantity ?? 0, wanted), limit, MAX_ITEM_QUANTITY);
 
             if (existingQuantity === undefined) {
                 if (slots <= 0) continue;

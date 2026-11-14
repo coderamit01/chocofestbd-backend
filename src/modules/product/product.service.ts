@@ -7,6 +7,7 @@ import { ProductStatus, UserRole } from "../../generated/prisma/enums";
 import { deleteFile, getFileUrl, getThumbnailUrl, uploadFile } from "../../lib/storage";
 import { getPagination, paginationMeta } from "../../shared/pagination";
 import { buildRangeFilter, buildSearchFilter } from "../../shared/filters";
+import { inStockWhere, outOfStockWhere } from "../../helpers/stock";
 import type { ProductFiles } from "./product.interface";
 import type {
     CreateProductPayload,
@@ -35,6 +36,8 @@ const productSelect = {
     discountPrice: true,
     stock: true,
     lowStockThreshold: true,
+    manageStock: true,
+    stockStatus: true,
     status: true,
     isFeatured: true,
     category: { select: { id: true, name: true, slug: true } },
@@ -63,6 +66,8 @@ const productListSelect = {
     price: true,
     discountPrice: true,
     stock: true,
+    manageStock: true,
+    stockStatus: true,
     isFeatured: true,
     averageRating: true,
     reviewCount: true,
@@ -179,11 +184,11 @@ const buildProductFilters = async (query: GetAllProductsQuery, onlyActiveCategor
     }
 
     if (inStock === true) {
-        filters.push({ stock: { gt: 0 } });
+        filters.push(inStockWhere);
     }
 
     if (inStock === false) {
-        filters.push({ stock: 0 });
+        filters.push(outOfStockWhere);
     }
 
     if (isFeatured !== undefined) {
