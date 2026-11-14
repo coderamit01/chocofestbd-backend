@@ -14,6 +14,7 @@ import { addressRoutes } from "../modules/address/address.route";
 import { couponRoutes } from "../modules/coupon/coupon.route";
 import { cartRoutes } from "../modules/cart/cart.route";
 import { reviewRoutes } from "../modules/review/review.route";
+import { orderRoutes } from "../modules/order/order.route";
 
 
 const router = Router();
@@ -33,6 +34,7 @@ router.use("/addresses", addressRoutes);
 router.use("/coupons", couponRoutes);
 router.use("/cart", cartRoutes);
 router.use("/reviews", reviewRoutes);
+router.use("/orders", orderRoutes);
 
 
 export const IndexRoutes = router;

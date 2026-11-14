@@ -10,7 +10,7 @@ export const addressIdParamSchema = z.object({
     addressId: z.string({ error: "Address id is required" }).trim().min(1, { error: "Address id is required" }),
 });
 
-const addressFields = {
+export const addressFields = {
     label: z
         .string({ error: "Label must be a string" })
         .trim()
