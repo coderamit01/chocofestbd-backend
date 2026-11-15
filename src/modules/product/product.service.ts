@@ -57,7 +57,7 @@ const productSelect = {
     updatedAt: true,
 } satisfies Prisma.ProductSelect;
 
-const productListSelect = {
+export const productListSelect = {
     id: true,
     name: true,
     slug: true,

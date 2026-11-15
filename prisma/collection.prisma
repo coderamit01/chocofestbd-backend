@@ -1,0 +1,31 @@
+model Collection {
+  id          String              @id @default(uuid(7))
+  title       String
+  slug        String              @unique
+  description String?
+  position    Int                 @default(0)
+  isActive    Boolean             @default(true)
+  showOnHome  Boolean             @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  products    CollectionProduct[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([isActive, position])
+  @@map("collections")
+}
+
+model CollectionProduct {
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  position     Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  @@id([collectionId, productId])
+  @@index([collectionId, position])
+  @@index([productId])
+  @@map("collection_products")
+}

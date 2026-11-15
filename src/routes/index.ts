@@ -15,6 +15,7 @@ import { couponRoutes } from "../modules/coupon/coupon.route";
 import { cartRoutes } from "../modules/cart/cart.route";
 import { reviewRoutes } from "../modules/review/review.route";
 import { orderRoutes } from "../modules/order/order.route";
+import { collectionRoutes } from "../modules/collection/collection.route";
 
 
 const router = Router();
@@ -35,6 +36,7 @@ router.use("/coupons", couponRoutes);
 router.use("/cart", cartRoutes);
 router.use("/reviews", reviewRoutes);
 router.use("/orders", orderRoutes);
+router.use("/collections", collectionRoutes);
 
 
 export const IndexRoutes = router;
