@@ -6,6 +6,7 @@ import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus, UserRole } fr
 import { getStockError, stockSelect } from "../../helpers/stock";
 import { getPagination, paginationMeta } from "../../shared/pagination";
 import { couponService } from "../coupon/coupon.service";
+import { getSetting } from "../setting/setting.service";
 import type {
     CancelMyOrderPayload,
     CheckoutItem,
@@ -17,6 +18,7 @@ import type {
     TrackOrderQuery,
     UpdateAdminNotePayload,
     UpdateOrderStatusPayload,
+    UpdatePaymentStatusPayload,
 } from "./order.validation";
 
 const Decimal = Prisma.Decimal;
@@ -31,6 +33,8 @@ const orderSelect = {
     status: true,
     paymentMethod: true,
     paymentStatus: true,
+    paymentSender: true,
+    paymentTransactionId: true,
     recipientName: true,
     recipientPhone: true,
     recipientEmail: true,
@@ -365,6 +369,8 @@ const adminOrderSelect = {
     ...customerOrderSelect,
     adminNote: true,
     couponId: true,
+    paymentVerifiedAt: true,
+    paymentVerifiedById: true,
     user: { select: { id: true, name: true, email: true, phone: true } },
     statusHistory: {
         select: {
@@ -405,6 +411,54 @@ const statusNotes: Partial<Record<OrderStatus, string>> = {
     [OrderStatus.RETURNED]: "Order returned",
     [OrderStatus.CANCELLED]: "Order cancelled",
 };
+
+const paymentSettingKeys = {
+    [PaymentMethod.COD]: "cod",
+    [PaymentMethod.BKASH]: "bkash",
+    [PaymentMethod.NAGAD]: "nagad",
+    [PaymentMethod.ROCKET]: "rocket",
+    [PaymentMethod.BANK_TRANSFER]: "bankTransfer",
+} as const;
+
+const paymentLabels: Record<PaymentMethod, string> = {
+    [PaymentMethod.COD]: "Cash on delivery",
+    [PaymentMethod.SSLCOMMERZ]: "SSLCommerz",
+    [PaymentMethod.BKASH]: "bKash",
+    [PaymentMethod.NAGAD]: "Nagad",
+    [PaymentMethod.ROCKET]: "Rocket",
+    [PaymentMethod.BANK_TRANSFER]: "Bank transfer",
+};
+
+const ensurePaymentMethodAvailable = async (method: keyof typeof paymentSettingKeys) => {
+    const payment = await getSetting("payment");
+
+    if (!payment[paymentSettingKeys[method]].enabled) {
+        throw new AppError(`${paymentLabels[method]} is not available right now`, 400);
+    }
+};
+
+const ensureTransactionUnused = async (method: PaymentMethod, transactionId: string | undefined) => {
+    if (!transactionId) return;
+
+    const existing = await prisma.order.findFirst({
+        where: { paymentMethod: method, paymentTransactionId: transactionId },
+        select: { id: true },
+    });
+
+    if (existing) {
+        throw new AppError("This transaction id has already been used", 409);
+    }
+};
+
+const isAdvancePayment = (method: PaymentMethod) => method !== PaymentMethod.COD;
+
+const statusesNeedingPayment: OrderStatus[] = [
+    OrderStatus.CONFIRMED,
+    OrderStatus.PROCESSING,
+    OrderStatus.PACKED,
+    OrderStatus.SHIPPED,
+    OrderStatus.DELIVERED,
+];
 
 const BD_OFFSET = "+06:00";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -477,6 +531,14 @@ const changeOrderStatus = async (orderId: string, change: StatusChange, changedB
             `Cannot change order from ${order.status.toLowerCase()} to ${change.status.toLowerCase()}`,
             400,
         );
+    }
+
+    if (
+        isAdvancePayment(order.paymentMethod) &&
+        order.paymentStatus !== PaymentStatus.PAID &&
+        statusesNeedingPayment.includes(change.status)
+    ) {
+        throw new AppError("Verify the payment and mark it as paid before confirming this order", 400);
     }
 
     const now = new Date();
@@ -587,6 +649,9 @@ export const orderService = {
             }
         }
 
+        await ensurePaymentMethodAvailable(payload.paymentMethod);
+        await ensureTransactionUnused(payload.paymentMethod, payload.paymentTransactionId);
+
         const shipping = payload.addressId
             ? await findSavedAddress(sessionUserId, payload.addressId)
             : payload.shipping!;
@@ -633,6 +698,8 @@ export const orderService = {
                     couponCode: totals.coupon?.code ?? null,
                     couponId: totals.coupon?.id ?? null,
                     paymentMethod: payload.paymentMethod,
+                    paymentSender: payload.paymentSender ?? null,
+                    paymentTransactionId: payload.paymentTransactionId ?? null,
                     items: {
                         create: lines.map((line) => ({
                             productId: line.productId,
@@ -767,6 +834,8 @@ export const orderService = {
                     { recipientPhone: { contains: query.searchTerm } },
                     { recipientName: { contains: query.searchTerm, mode: "insensitive" } },
                     { recipientEmail: { contains: query.searchTerm, mode: "insensitive" } },
+                    { paymentTransactionId: { contains: query.searchTerm, mode: "insensitive" } },
+                    { paymentSender: { contains: query.searchTerm } },
                 ],
             }),
         };
@@ -817,6 +886,65 @@ export const orderService = {
 
     updateOrderStatus: async (orderId: string, payload: UpdateOrderStatusPayload, adminId: string) => {
         return changeOrderStatus(orderId, payload, adminId);
+    },
+
+    updatePaymentStatus: async (orderId: string, payload: UpdatePaymentStatusPayload, adminId: string) => {
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            select: { id: true, status: true, paymentMethod: true, paymentStatus: true },
+        });
+
+        if (!order) {
+            throw new AppError("Order not found", 404);
+        }
+
+        if (order.status === OrderStatus.CANCELLED || order.status === OrderStatus.RETURNED) {
+            throw new AppError(`Cannot change payment of a ${order.status.toLowerCase()} order`, 400);
+        }
+
+        if (order.paymentStatus === payload.paymentStatus) {
+            throw new AppError(`Payment is already ${payload.paymentStatus.toLowerCase()}`, 400);
+        }
+
+        if (order.paymentStatus !== PaymentStatus.PAID && order.paymentStatus !== PaymentStatus.UNPAID) {
+            throw new AppError("This payment has been refunded and cannot be changed here", 400);
+        }
+
+        if (
+            payload.paymentStatus === PaymentStatus.UNPAID &&
+            isAdvancePayment(order.paymentMethod) &&
+            statusesNeedingPayment.includes(order.status)
+        ) {
+            throw new AppError("Cancel the order instead of marking a confirmed advance payment as unpaid", 400);
+        }
+
+        const isPaid = payload.paymentStatus === PaymentStatus.PAID;
+
+        return prisma.$transaction(async (tx) => {
+            const updated = await tx.order.updateMany({
+                where: { id: order.id, paymentStatus: order.paymentStatus, status: order.status },
+                data: {
+                    paymentStatus: payload.paymentStatus,
+                    paymentVerifiedAt: isPaid ? new Date() : null,
+                    paymentVerifiedById: isPaid ? adminId : null,
+                },
+            });
+
+            if (updated.count === 0) {
+                throw new AppError("This order was just updated by someone else. Please refresh", 409);
+            }
+
+            await tx.orderStatusHistory.create({
+                data: {
+                    orderId: order.id,
+                    status: order.status,
+                    note: payload.note ?? (isPaid ? "Payment marked as paid" : "Payment marked as unpaid"),
+                    changedById: adminId,
+                },
+            });
+
+            return tx.order.findUniqueOrThrow({ where: { id: order.id }, select: adminOrderSelect });
+        });
     },
 
     updateAdminNote: async (orderId: string, payload: UpdateAdminNotePayload) => {

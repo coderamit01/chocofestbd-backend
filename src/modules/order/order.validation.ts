@@ -10,6 +10,16 @@ const unrecognizedKeysError = {
         issue.code === "unrecognized_keys" ? `Field not allowed: ${issue.keys.join(", ")}` : undefined,
 };
 
+const BD_PHONE = /^01[3-9]\d{8}$/;
+
+export const CHECKOUT_PAYMENT_METHODS = [
+    PaymentMethod.COD,
+    PaymentMethod.BKASH,
+    PaymentMethod.NAGAD,
+    PaymentMethod.ROCKET,
+    PaymentMethod.BANK_TRANSFER,
+] as const;
+
 const shippingSchema = z
     .strictObject(
         {
@@ -68,8 +78,20 @@ const checkoutFields = {
         .transform((value) => value || undefined)
         .exactOptional(),
     paymentMethod: z
-        .literal(PaymentMethod.COD, { error: "Only cash on delivery is available right now" })
+        .enum(CHECKOUT_PAYMENT_METHODS, { error: "Select a valid payment method" })
         .default(PaymentMethod.COD),
+    paymentSender: z
+        .string({ error: "Sender number must be a string" })
+        .trim()
+        .min(1, { error: "Sender number is required" })
+        .max(30, { error: "Sender number must be at most 30 characters" })
+        .exactOptional(),
+    paymentTransactionId: z
+        .string({ error: "Transaction id must be a string" })
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z0-9-]{6,30}$/, { error: "Transaction id must be 6 to 30 letters or numbers" })
+        .exactOptional(),
     saveAddress: z.boolean({ error: "saveAddress must be true or false" }).exactOptional(),
 };
 
@@ -82,6 +104,32 @@ export const checkoutSchema = z
     .refine((data) => data.addressId || data.shipping, {
         path: ["shipping"],
         error: "Shipping address is required",
+    })
+    .superRefine((data, ctx) => {
+        if (data.paymentMethod === PaymentMethod.COD) {
+            if (data.paymentSender !== undefined || data.paymentTransactionId !== undefined) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: ["paymentTransactionId"],
+                    message: "Sender and transaction id are only for advance payments",
+                });
+            }
+            return;
+        }
+
+        if (!data.paymentSender) {
+            ctx.addIssue({ code: "custom", path: ["paymentSender"], message: "Sender number is required" });
+        } else if (data.paymentMethod !== PaymentMethod.BANK_TRANSFER && !BD_PHONE.test(data.paymentSender)) {
+            ctx.addIssue({
+                code: "custom",
+                path: ["paymentSender"],
+                message: "Sender number must be in the format 01XXXXXXXXX",
+            });
+        }
+
+        if (!data.paymentTransactionId) {
+            ctx.addIssue({ code: "custom", path: ["paymentTransactionId"], message: "Transaction id is required" });
+        }
     });
 
 export const checkoutPreviewSchema = z
@@ -175,6 +223,16 @@ export const updateOrderStatusSchema = z
         error: "Cancel reason is only for cancelled orders",
     });
 
+export const updatePaymentStatusSchema = z.strictObject(
+    {
+        paymentStatus: z.enum([PaymentStatus.PAID, PaymentStatus.UNPAID], {
+            error: "Payment status must be PAID or UNPAID",
+        }),
+        note: noteField("Note", 300).exactOptional(),
+    },
+    unrecognizedKeysError,
+);
+
 export const updateAdminNoteSchema = z.strictObject(
     {
         adminNote: z
@@ -194,5 +252,6 @@ export type GetAllOrdersQuery = z.infer<typeof getAllOrdersQuerySchema>;
 export type TrackOrderQuery = z.infer<typeof trackOrderQuerySchema>;
 export type CancelMyOrderPayload = z.infer<typeof cancelMyOrderSchema>;
 export type UpdateOrderStatusPayload = z.infer<typeof updateOrderStatusSchema>;
+export type UpdatePaymentStatusPayload = z.infer<typeof updatePaymentStatusSchema>;
 export type UpdateAdminNotePayload = z.infer<typeof updateAdminNoteSchema>;
 export type OrderSortOption = (typeof orderSortOptions)[number];

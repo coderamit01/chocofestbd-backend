@@ -37,6 +37,8 @@ enum PaymentMethod {
   SSLCOMMERZ
   BKASH
   NAGAD
+  ROCKET
+  BANK_TRANSFER
 }
 
 enum PaymentStatus {

@@ -144,6 +144,18 @@ export const orderController = {
         });
     }),
 
+    updatePaymentStatus: catchAsync(async (req: Request, res: Response) => {
+        const { orderId } = orderIdParamSchema.parse(req.params);
+        const order = await orderService.updatePaymentStatus(orderId, req.body, req.user!.id);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Payment status updated",
+            data: order,
+        });
+    }),
+
     updateAdminNote: catchAsync(async (req: Request, res: Response) => {
         const { orderId } = orderIdParamSchema.parse(req.params);
         const order = await orderService.updateAdminNote(orderId, req.body);

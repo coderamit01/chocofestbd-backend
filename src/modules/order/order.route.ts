@@ -9,6 +9,7 @@ import {
     checkoutSchema,
     updateAdminNoteSchema,
     updateOrderStatusSchema,
+    updatePaymentStatusSchema,
 } from "./order.validation";
 
 
@@ -28,6 +29,7 @@ router.get("/admin", Authentication(...orderStaff), orderController.getAllOrders
 router.get("/admin/counts", Authentication(...orderStaff), orderController.getOrderStatusCounts);
 router.get("/admin/:orderId", Authentication(...orderStaff), orderController.getOrderById);
 router.patch("/admin/:orderId/status", Authentication(...orderStaff), validateRequest(updateOrderStatusSchema), orderController.updateOrderStatus);
+router.patch("/admin/:orderId/payment", Authentication(...orderStaff), validateRequest(updatePaymentStatusSchema), orderController.updatePaymentStatus);
 router.patch("/admin/:orderId/note", Authentication(...orderStaff), validateRequest(updateAdminNoteSchema), orderController.updateAdminNote);
 
 

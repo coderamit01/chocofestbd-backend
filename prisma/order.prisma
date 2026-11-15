@@ -22,7 +22,11 @@ model Order {
   status           OrderStatus          @default(PENDING)
   paymentMethod    PaymentMethod        @default(COD)
   paymentStatus    PaymentStatus        @default(UNPAID)
-  adminNote        String?
+  paymentSender        String?
+  paymentTransactionId String?
+  paymentVerifiedAt    DateTime?
+  paymentVerifiedById  String?
+  adminNote       String?
   cancelReason     String?
   confirmedAt      DateTime?
   deliveredAt      DateTime?
@@ -34,6 +38,7 @@ model Order {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@unique([paymentMethod, paymentTransactionId])
   @@index([paymentStatus])
   @@index([recipientPhone])
   @@index([createdAt])
