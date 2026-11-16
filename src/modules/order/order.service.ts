@@ -233,14 +233,25 @@ const calculateTotals = async (
     return { subtotal, discountAmount, deliveryCharge, total, coupon, itemDiscounts };
 };
 
-const generateOrderNumber = async () => {
-    const now = new Date();
-    const date = [now.getFullYear() % 100, now.getMonth() + 1, now.getDate()]
+const BD_OFFSET_MS = 6 * 60 * 60 * 1000;
+
+const bdDateCode = () => {
+    const bd = new Date(Date.now() + BD_OFFSET_MS);
+
+    return [bd.getUTCFullYear() % 100, bd.getUTCMonth() + 1, bd.getUTCDate()]
         .map((part) => String(part).padStart(2, "0"))
         .join("");
+};
+
+const buildInvoiceNumber = (invoicePrefix: string, orderNumber: string) =>
+    `${invoicePrefix}-${orderNumber.slice(orderNumber.indexOf("-") + 1)}`;
+
+const generateOrderNumber = async () => {
+    const { orderPrefix } = await getSetting("numbering");
+    const date = bdDateCode();
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-        const orderNumber = `CF-${date}-${randomInt(10000, 100000)}`;
+        const orderNumber = `${orderPrefix}-${date}-${randomInt(10000, 100000)}`;
         const used = await prisma.order.findUnique({ where: { orderNumber }, select: { id: true } });
 
         if (!used) return orderNumber;
@@ -638,7 +649,8 @@ const changeOrderStatus = async (orderId: string, change: StatusChange, changedB
 
     if (change.status === OrderStatus.CONFIRMED) {
         data.confirmedAt = now;
-        data.invoiceNumber = order.invoiceNumber ?? `INV-${order.orderNumber.slice(3)}`;
+        data.invoiceNumber =
+            order.invoiceNumber ?? buildInvoiceNumber((await getSetting("numbering")).invoicePrefix, order.orderNumber);
     }
 
     if (change.status === OrderStatus.DELIVERED) {

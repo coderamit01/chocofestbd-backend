@@ -38,6 +38,14 @@ const email = (label: string) =>
         error: `${label} must be a valid email address`,
     });
 
+const prefix = (label: string, fallback: string) =>
+    z
+        .string({ error: `${label} must be a string` })
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z0-9]{1,10}$/, { error: `${label} must be 1 to 10 letters or numbers, without spaces or dashes` })
+        .default(fallback);
+
 const html = (label: string) => text(label, 50000).transform(sanitizeHtml);
 
 const flag = (label: string, fallback: boolean) =>
@@ -166,6 +174,14 @@ const buildSchemas = (strict: boolean) => ({
         },
         strict,
     ),
+    numbering: objectOf(
+        {
+            orderPrefix: prefix("Order number prefix", "CF"),
+            invoicePrefix: prefix("Invoice number prefix", "INV"),
+            skuPrefix: prefix("SKU prefix", "CF"),
+        },
+        strict,
+    ),
     legal: objectOf(
         {
             terms: html("Terms"),
@@ -192,6 +208,7 @@ export const SETTING_IMAGE_FIELDS = {
     payment: ["cod", "bkash", "nagad", "rocket", "bankTransfer"],
     inventory: [],
     maintenance: [],
+    numbering: [],
     legal: [],
 } as const satisfies Record<SettingGroup, readonly string[]>;
 

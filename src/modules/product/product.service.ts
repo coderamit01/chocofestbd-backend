@@ -8,6 +8,7 @@ import { deleteFile, getFileUrl, getThumbnailUrl, uploadFile } from "../../lib/s
 import { getPagination, paginationMeta } from "../../shared/pagination";
 import { buildRangeFilter, buildSearchFilter } from "../../shared/filters";
 import { inStockWhere, outOfStockWhere } from "../../helpers/stock";
+import { getSetting } from "../setting/setting.service";
 import type { ProductFiles } from "./product.interface";
 import type {
     CreateProductPayload,
@@ -114,8 +115,10 @@ const makeSlug = async (name: string) => {
 };
 
 const makeSku = async () => {
+    const { skuPrefix } = await getSetting("numbering");
+
     for (let i = 0; i < 5; i++) {
-        const sku = `CF-${randomBytes(4).toString("hex").toUpperCase()}`;
+        const sku = `${skuPrefix}-${randomBytes(4).toString("hex").toUpperCase()}`;
         const found = await prisma.product.findUnique({ where: { sku }, select: { id: true } });
 
         if (!found) {
