@@ -32,6 +32,12 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum NotificationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
 enum PaymentMethod {
   COD
   SSLCOMMERZ

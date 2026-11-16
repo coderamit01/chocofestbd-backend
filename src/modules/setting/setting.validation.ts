@@ -1,6 +1,17 @@
 import * as z from "zod";
 import createDOMPurify, { type DOMPurify } from "dompurify";
 import { JSDOM } from "jsdom";
+import { NOTIFICATION_TYPE_KEYS, type NotificationType } from "../notification/notification.constant";
+
+const TELEGRAM_DEFAULTS: Record<NotificationType, boolean> = {
+    "order.created": true,
+    "order.paymentPending": true,
+    "order.cancelledByCustomer": true,
+    "stock.low": false,
+    "stock.out": true,
+    "review.pending": false,
+    "system.error": true,
+};
 
 const unrecognizedKeysError = {
     error: (issue: z.core.$ZodRawIssue) =>
@@ -55,6 +66,9 @@ type Shape = Record<string, z.ZodType>;
 
 const objectOf = <T extends Shape>(shape: T, strict: boolean) =>
     strict ? z.strictObject(shape, unrecognizedKeysError) : z.object(shape);
+
+const eventToggle = (type: NotificationType, strict: boolean) =>
+    objectOf({ telegram: flag(`${type} telegram`, TELEGRAM_DEFAULTS[type]) }, strict).prefault({});
 
 export const ACCOUNT_TYPES = ["MERCHANT", "PERSONAL"] as const;
 
@@ -174,6 +188,18 @@ const buildSchemas = (strict: boolean) => ({
         },
         strict,
     ),
+    notifications: objectOf(
+        {
+            telegramEnabled: flag("Telegram enabled", false),
+            events: objectOf(
+                Object.fromEntries(
+                    NOTIFICATION_TYPE_KEYS.map((type) => [type, eventToggle(type, strict)]),
+                ) as unknown as Record<NotificationType, ReturnType<typeof eventToggle>>,
+                strict,
+            ).prefault({}),
+        },
+        strict,
+    ),
     numbering: objectOf(
         {
             orderPrefix: prefix("Order number prefix", "CF"),
@@ -208,6 +234,7 @@ export const SETTING_IMAGE_FIELDS = {
     payment: ["cod", "bkash", "nagad", "rocket", "bankTransfer"],
     inventory: [],
     maintenance: [],
+    notifications: [],
     numbering: [],
     legal: [],
 } as const satisfies Record<SettingGroup, readonly string[]>;

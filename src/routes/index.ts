@@ -17,6 +17,7 @@ import { reviewRoutes } from "../modules/review/review.route";
 import { orderRoutes } from "../modules/order/order.route";
 import { collectionRoutes } from "../modules/collection/collection.route";
 import { settingRoutes } from "../modules/setting/setting.route";
+import { notificationRoutes } from "../modules/notification/notification.route";
 
 
 const router = Router();
@@ -39,6 +40,7 @@ router.use("/reviews", reviewRoutes);
 router.use("/orders", orderRoutes);
 router.use("/collections", collectionRoutes);
 router.use("/settings", settingRoutes);
+router.use("/notifications", notificationRoutes);
 
 
 export const IndexRoutes = router;

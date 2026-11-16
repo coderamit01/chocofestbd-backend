@@ -16,6 +16,8 @@ const envSchema = z.object({
     ADMIN_PHONE: z.string().trim().min(1),
     STORAGE_LOCAL_DIR: z.string().trim().min(1).default("./uploads"),
     STORAGE_PUBLIC_URL: z.url().transform((url) => url.replace(/\/+$/, "")),
+    TELEGRAM_BOT_TOKEN: z.string().trim().regex(/^\d+:[\w-]{30,}$/, { error: "TELEGRAM_BOT_TOKEN looks invalid" }).optional(),
+    TELEGRAM_CHAT_ID: z.string().trim().regex(/^-?\d+$/, { error: "TELEGRAM_CHAT_ID must be a number like -1001234567890" }).optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
