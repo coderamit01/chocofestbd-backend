@@ -81,6 +81,19 @@ export const orderController = {
         });
     }),
 
+    getMyOrderInvoice: catchAsync(async (req: Request, res: Response) => {
+        const { orderId } = orderIdParamSchema.parse(req.params);
+        const invoice = await orderService.getMyOrderInvoice(req.user!.id, orderId);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Invoice retrieved successfully",
+            data: invoice,
+        });
+    }),
+
     cancelMyOrder: catchAsync(async (req: Request, res: Response) => {
         const { orderId } = orderIdParamSchema.parse(req.params);
         const order = await orderService.cancelMyOrder(req.user!.id, orderId, req.body);

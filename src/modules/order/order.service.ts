@@ -6,7 +6,7 @@ import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus, UserRole } fr
 import { getStockError, stockSelect } from "../../helpers/stock";
 import { getPagination, paginationMeta } from "../../shared/pagination";
 import { couponService } from "../coupon/coupon.service";
-import { getSetting } from "../setting/setting.service";
+import { getSetting, settingService } from "../setting/setting.service";
 import type {
     CancelMyOrderPayload,
     CheckoutItem,
@@ -460,6 +460,98 @@ const statusesNeedingPayment: OrderStatus[] = [
     OrderStatus.DELIVERED,
 ];
 
+const invoiceSelect = {
+    id: true,
+    orderNumber: true,
+    invoiceNumber: true,
+    status: true,
+    createdAt: true,
+    confirmedAt: true,
+    deliveredAt: true,
+    recipientName: true,
+    recipientPhone: true,
+    recipientEmail: true,
+    address: true,
+    area: true,
+    district: true,
+    deliveryZoneName: true,
+    customerNote: true,
+    couponCode: true,
+    subtotal: true,
+    discountAmount: true,
+    deliveryCharge: true,
+    total: true,
+    paymentMethod: true,
+    paymentStatus: true,
+    paymentTransactionId: true,
+    paymentVerifiedAt: true,
+    items: {
+        select: {
+            productName: true,
+            productSku: true,
+            unitPrice: true,
+            quantity: true,
+            lineTotal: true,
+            discountAmount: true,
+        },
+        orderBy: { createdAt: "asc" },
+    },
+} satisfies Prisma.OrderSelect;
+
+type InvoiceOrder = Prisma.OrderGetPayload<{ select: typeof invoiceSelect }>;
+
+const buildInvoice = async (order: InvoiceOrder & { invoiceNumber: string }) => {
+    const { value: store, images } = await settingService.getSettingGroup("general");
+
+    return {
+        invoiceNumber: order.invoiceNumber,
+        orderNumber: order.orderNumber,
+        orderStatus: order.status,
+        orderDate: order.createdAt,
+        issuedAt: order.confirmedAt ?? order.createdAt,
+        deliveredAt: order.deliveredAt,
+        store: {
+            name: store.storeName,
+            logo: images.logo ?? null,
+            phone: store.phone,
+            email: store.email,
+            address: store.address,
+        },
+        billTo: {
+            name: order.recipientName,
+            phone: order.recipientPhone,
+            email: order.recipientEmail,
+            address: order.address,
+            area: order.area,
+            district: order.district,
+        },
+        items: order.items.map((item) => ({
+            name: item.productName,
+            sku: item.productSku,
+            unitPrice: item.unitPrice.toFixed(2),
+            quantity: item.quantity,
+            discountAmount: item.discountAmount.toFixed(2),
+            lineTotal: item.lineTotal.toFixed(2),
+        })),
+        summary: {
+            subtotal: order.subtotal.toFixed(2),
+            discountAmount: order.discountAmount.toFixed(2),
+            couponCode: order.couponCode,
+            deliveryCharge: order.deliveryCharge.toFixed(2),
+            deliveryZoneName: order.deliveryZoneName,
+            total: order.total.toFixed(2),
+        },
+        payment: {
+            method: order.paymentMethod,
+            methodLabel: paymentLabels[order.paymentMethod],
+            status: order.paymentStatus,
+            transactionId: order.paymentTransactionId,
+            paidAt: order.paymentMethod === PaymentMethod.COD ? order.deliveredAt : order.paymentVerifiedAt,
+        },
+        customerNote: order.customerNote,
+    };
+};
+
 const BD_OFFSET = "+06:00";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -780,6 +872,23 @@ export const orderService = {
         }
 
         return order;
+    },
+
+    getMyOrderInvoice: async (userId: string, orderId: string) => {
+        const order = await prisma.order.findFirst({
+            where: { id: orderId, userId },
+            select: invoiceSelect,
+        });
+
+        if (!order) {
+            throw new AppError("Order not found", 404);
+        }
+
+        if (!order.invoiceNumber) {
+            throw new AppError("The invoice will be available after your order is confirmed", 400);
+        }
+
+        return buildInvoice({ ...order, invoiceNumber: order.invoiceNumber });
     },
 
     cancelMyOrder: async (userId: string, orderId: string, payload: CancelMyOrderPayload) => {

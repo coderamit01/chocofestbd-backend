@@ -23,6 +23,7 @@ router.get("/track", orderController.trackOrder);
 
 router.get("/my", Authentication(), orderController.getMyOrders);
 router.get("/my/:orderId", Authentication(), orderController.getMyOrderById);
+router.get("/my/:orderId/invoice", Authentication(), orderController.getMyOrderInvoice);
 router.patch("/my/:orderId/cancel", Authentication(), validateRequest(cancelMyOrderSchema), orderController.cancelMyOrder);
 
 router.get("/admin", Authentication(...orderStaff), orderController.getAllOrders);

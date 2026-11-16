@@ -3,9 +3,10 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError } from "better-auth/api";
 import { prisma } from "./prisma";
 import { UserRole } from "../generated/prisma/enums";
+import { envVars } from "../config/env";
 
 export const auth = betterAuth({
-  baseURL: "http://localhost:3000",
+  baseURL: envVars.APP_URL,
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),

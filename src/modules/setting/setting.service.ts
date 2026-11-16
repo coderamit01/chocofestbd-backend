@@ -90,7 +90,7 @@ export const settingService = {
         return groups;
     },
 
-    getSettingGroup: async (group: SettingGroup) => {
+    getSettingGroup: async <G extends SettingGroup>(group: G) => {
         return toAdminView(group, await loadGroup(group));
     },
 
