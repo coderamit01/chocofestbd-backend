@@ -5,6 +5,7 @@ import { envVars } from "../config/env";
 import { AppError } from "../helpers/AppError";
 import { Prisma } from "../generated/prisma/client";
 import { MAX_FILES } from "./upload";
+import { alertServerError } from "../helpers/errorAlert";
 
 export const errorHandler = (err: any, req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ZodError) {
@@ -50,6 +51,7 @@ export const errorHandler = (err: any, req: Request, res: Response, _next: NextF
 
     if (isServerError) {
         console.error(`[${req.method} ${req.originalUrl}]`, err);
+        alertServerError(req, statusCode, err);
     }
 
     const isSafeMessage = err instanceof AppError || !isServerError;

@@ -4,6 +4,7 @@ import type { Prisma } from "../../generated/prisma/client";
 import { OrderStatus, ProductStatus, ReviewStatus } from "../../generated/prisma/enums";
 import { deleteFile, getFileUrl, uploadFile } from "../../lib/storage";
 import { getPagination, paginationMeta } from "../../shared/pagination";
+import { notify } from "../notification/notification.service";
 import type {
     CreateReviewPayload,
     GetAllReviewsQuery,
@@ -94,7 +95,7 @@ export const reviewService = {
     createReview: async (userId: string, payload: CreateReviewPayload, file: Express.Multer.File | undefined) => {
         const product = await prisma.product.findFirst({
             where: { id: payload.productId, status: ProductStatus.ACTIVE, deletedAt: null },
-            select: { id: true },
+            select: { id: true, name: true },
         });
 
         if (!product) {
@@ -113,8 +114,10 @@ export const reviewService = {
         const isVerifiedPurchase = await hasDeliveredOrder(userId, payload.productId);
         const key = file ? (await uploadFile(file, "reviews")).key : null;
 
+        let review;
+
         try {
-            return await prisma.productReview.create({
+            review = await prisma.productReview.create({
                 data: {
                     ...payload,
                     userId,
@@ -127,6 +130,15 @@ export const reviewService = {
             if (key) await deleteFile(key);
             throw error;
         }
+
+        void notify("review.pending", {
+            title: `New review for ${product.name}`,
+            message: `${payload.rating}★${isVerifiedPurchase ? " · Verified purchase" : ""} · Waiting for approval`,
+            link: "/admin/reviews?status=PENDING",
+            data: { productId: product.id },
+        });
+
+        return review;
     },
 
     getProductReviews: async (productId: string, query: GetProductReviewsQuery) => {

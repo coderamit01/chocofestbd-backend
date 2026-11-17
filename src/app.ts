@@ -8,6 +8,7 @@ import cors from "cors"
 import helmet from 'helmet';
 import path from 'node:path';
 import { errorHandler } from './middlewares/errorHandler';
+import { maintenanceGuard } from './middlewares/maintenance';
 
 const app = express()
 
@@ -50,7 +51,7 @@ app.get("/health", (_req, res) => {
     res.json({ success: true, status: "Ok" })
 })
 
-app.use('/api/v1', IndexRoutes);
+app.use('/api/v1', maintenanceGuard, IndexRoutes);
 
 app.use((req, res) => {
     res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.originalUrl}` });

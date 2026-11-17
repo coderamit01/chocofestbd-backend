@@ -1,5 +1,6 @@
 import { prisma } from './lib/prisma'
 import app from './app'
+import { startJobs } from './jobs'
 
 
 
@@ -10,6 +11,7 @@ async function main() {
     await prisma.$connect()
     app.listen(port, () => {
       console.log(`Server running on port ${port}`)
+      startJobs()
     })
   } catch (error) {
     await prisma.$disconnect()

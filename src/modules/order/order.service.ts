@@ -7,6 +7,7 @@ import { getStockError, stockSelect } from "../../helpers/stock";
 import { getPagination, paginationMeta } from "../../shared/pagination";
 import { couponService } from "../coupon/coupon.service";
 import { getSetting, settingService } from "../setting/setting.service";
+import { notify } from "../notification/notification.service";
 import type {
     CancelMyOrderPayload,
     CheckoutItem,
@@ -307,6 +308,70 @@ const reduceStock = async (tx: Tx, lines: PricedLine[]) => {
         if (result.count === 0) {
             throw new AppError(`${line.productName} just went out of stock. Please update your order`, 409);
         }
+    }
+};
+
+const formatTaka = (amount: Decimal) => `৳${amount.toFixed(2)}`;
+
+const notifyNewOrder = (order: {
+    id: string;
+    orderNumber: string;
+    total: Decimal;
+    paymentMethod: PaymentMethod;
+    paymentTransactionId: string | null;
+    recipientName: string;
+    recipientPhone: string;
+    items: { quantity: number }[];
+}) => {
+    const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    const advance = isAdvancePayment(order.paymentMethod);
+    const payment = advance
+        ? `${paymentLabels[order.paymentMethod]} · TrxID ${order.paymentTransactionId ?? "-"}`
+        : paymentLabels[order.paymentMethod];
+
+    return notify(advance ? "order.paymentPending" : "order.created", {
+        title: advance ? `New order ${order.orderNumber}: verify payment` : `New order ${order.orderNumber}`,
+        message: `${formatTaka(order.total)} · ${payment}\n${order.recipientName} (${order.recipientPhone}) · ${itemCount} item${itemCount === 1 ? "" : "s"}`,
+        link: `/admin/orders/${order.id}`,
+        data: { orderId: order.id, orderNumber: order.orderNumber },
+    });
+};
+
+const notifyStockLevels = async (lines: PricedLine[]) => {
+    try {
+        const managed = lines.filter((line) => line.manageStock);
+
+        if (!managed.length) return;
+
+        const products = await prisma.product.findMany({
+            where: { id: { in: managed.map((line) => line.productId) } },
+            select: { id: true, name: true, sku: true, stock: true, lowStockThreshold: true },
+        });
+
+        for (const product of products) {
+            const sold = managed.find((line) => line.productId === product.id)?.quantity ?? 0;
+            const before = product.stock + sold;
+            const common = {
+                link: `/admin/products/${product.id}`,
+                data: { productId: product.id, sku: product.sku, stock: product.stock },
+            };
+
+            if (product.stock <= 0) {
+                await notify("stock.out", {
+                    ...common,
+                    title: `Out of stock: ${product.name}`,
+                    message: `${product.sku} has no stock left. It can no longer be ordered.`,
+                });
+            } else if (product.stock <= product.lowStockThreshold && before > product.lowStockThreshold) {
+                await notify("stock.low", {
+                    ...common,
+                    title: `Low stock: ${product.name}`,
+                    message: `${product.sku} has only ${product.stock} left (alert level ${product.lowStockThreshold}).`,
+                });
+            }
+        }
+    } catch (error) {
+        console.error("Failed to check stock levels for notifications:", error);
     }
 };
 
@@ -753,6 +818,12 @@ export const orderService = {
             }
         }
 
+        const maintenance = await getSetting("maintenance");
+
+        if (maintenance.storeClosed) {
+            throw new AppError(maintenance.closedMessage || "We are not taking orders right now. Please check back soon", 503);
+        }
+
         await ensurePaymentMethodAvailable(payload.paymentMethod);
         await ensureTransactionUnused(payload.paymentMethod, payload.paymentTransactionId);
 
@@ -851,6 +922,9 @@ export const orderService = {
             return { order, accountCreated: customer.isNew };
         });
 
+        void notifyNewOrder(result.order);
+        void notifyStockLevels(lines);
+
         return result;
     },
 
@@ -917,7 +991,7 @@ export const orderService = {
             throw new AppError("This order can no longer be cancelled. Please contact us", 400);
         }
 
-        return changeOrderStatus(
+        const cancelled = await changeOrderStatus(
             orderId,
             {
                 status: OrderStatus.CANCELLED,
@@ -927,6 +1001,15 @@ export const orderService = {
             userId,
             userId,
         );
+
+        void notify("order.cancelledByCustomer", {
+            title: `Order ${cancelled.orderNumber} cancelled by customer`,
+            message: `${formatTaka(cancelled.total)} · ${cancelled.recipientName} (${cancelled.recipientPhone})\nReason: ${payload.reason ?? "Not given"}`,
+            link: `/admin/orders/${orderId}`,
+            data: { orderId, orderNumber: cancelled.orderNumber },
+        });
+
+        return cancelled;
     },
 
     trackOrder: async (query: TrackOrderQuery) => {
