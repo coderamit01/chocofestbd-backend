@@ -4,8 +4,6 @@ enum UserRole {
   MANAGER
   ORDER_HANDLER
   RIDER
-  PACKER
-  ACCOUNTANT
   CUSTOMER
 }
 
