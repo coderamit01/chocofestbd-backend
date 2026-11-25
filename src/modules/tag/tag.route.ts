@@ -8,10 +8,10 @@ import { tagSchema } from "./tag.validation";
 
 const router = Router();
 
-router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(tagSchema), tagController.createTag);
-router.get("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), tagController.getAllTags);
-router.get("/:tagId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), tagController.getTagById);
-router.put("/:tagId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(tagSchema), tagController.updateTag);
+router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), validateRequest(tagSchema), tagController.createTag);
+router.get("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), tagController.getAllTags);
+router.get("/:tagId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), tagController.getTagById);
+router.put("/:tagId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), validateRequest(tagSchema), tagController.updateTag);
 router.delete("/:tagId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), tagController.deleteTag);
 
 

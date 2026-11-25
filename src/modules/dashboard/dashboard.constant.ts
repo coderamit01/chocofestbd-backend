@@ -1,6 +1,6 @@
 import { OrderStatus, UserRole } from "../../generated/prisma/enums";
 
-export const DASHBOARD_ROLES = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT];
+export const DASHBOARD_ROLES = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER];
 
 // Orders in these statuses don't count as revenue
 export const EXCLUDED_REVENUE_STATUSES: OrderStatus[] = [OrderStatus.CANCELLED, OrderStatus.RETURNED];

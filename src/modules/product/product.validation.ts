@@ -119,6 +119,24 @@ export const updateProductSchema = z
             price: productFields.price.exactOptional(),
             categoryId: productFields.categoryId.exactOptional(),
             removeGalleryImageIds: idList(8, "You can remove at most 8 gallery images at once").exactOptional(),
+            galleryOrder: idList(8, "A product can have at most 8 gallery images").exactOptional(),
+            galleryAlts: z
+                .string({ error: "galleryAlts must be a JSON object" })
+                .transform((value, ctx) => {
+                    try {
+                        return JSON.parse(value) as unknown;
+                    } catch {
+                        ctx.addIssue({ code: "custom", message: "galleryAlts must be a JSON object" });
+                        return z.NEVER;
+                    }
+                })
+                .pipe(
+                    z.record(
+                        z.string(),
+                        z.string({ error: "Alt text must be a string" }).trim().max(150, { error: "Alt text must be at most 150 characters" }),
+                    ),
+                )
+                .exactOptional(),
         },
         unrecognizedKeysError,
     )
@@ -160,14 +178,48 @@ export const getAllProductsQuerySchema = paginationQuerySchema
     .extend(productListFields)
     .refine(isPriceRangeValid, priceRangeError);
 
+export const adminProductSortOptions = [...productSortOptions, "stock_low"] as const;
+
+export const adminStockFilters = ["in", "low", "out"] as const;
+
 export const getAdminProductsQuerySchema = paginationQuerySchema
     .extend({
         ...productListFields,
         status: z
             .enum(ProductStatus, { error: "Status must be DRAFT, ACTIVE or ARCHIVED" })
             .optional(),
+        stock: z.enum(adminStockFilters, { error: "Stock must be in, low or out" }).optional(),
+        sortBy: z
+            .enum(adminProductSortOptions, { error: `Sort by must be one of: ${adminProductSortOptions.join(", ")}` })
+            .default("newest"),
     })
     .refine(isPriceRangeValid, priceRangeError);
+
+const bulkProductIds = z
+    .array(z.string({ error: "Product id must be a string" }).trim().min(1), { error: "Product ids are required" })
+    .min(1, { error: "Select at least one product" })
+    .max(100, { error: "You can update at most 100 products at once" })
+    .transform((ids) => [...new Set(ids)]);
+
+export const bulkUpdateProductsSchema = z
+    .strictObject(
+        {
+            productIds: bulkProductIds,
+            status: z
+                .enum([ProductStatus.DRAFT, ProductStatus.ACTIVE, ProductStatus.ARCHIVED], {
+                    error: "Status must be DRAFT, ACTIVE or ARCHIVED",
+                })
+                .exactOptional(),
+            isFeatured: z.boolean({ error: "isFeatured must be true or false" }).exactOptional(),
+            categoryId: z.string({ error: "Category id must be a string" }).trim().min(1).exactOptional(),
+        },
+        unrecognizedKeysError,
+    )
+    .refine((data) => data.status !== undefined || data.isFeatured !== undefined || data.categoryId !== undefined, {
+        error: "Choose a change to apply",
+    });
+
+export const bulkTrashProductsSchema = z.strictObject({ productIds: bulkProductIds }, unrecognizedKeysError);
 
 
 export const getTrashedProductsQuerySchema = paginationQuerySchema.extend({
@@ -180,3 +232,5 @@ export type GetAdminProductsQuery = z.infer<typeof getAdminProductsQuerySchema>;
 export type UpdateProductPayload = z.infer<typeof updateProductSchema>;
 export type GetAllProductsQuery = z.infer<typeof getAllProductsQuerySchema>;
 export type ProductSortOption = (typeof productSortOptions)[number];
+export type AdminProductSortOption = (typeof adminProductSortOptions)[number];
+export type BulkUpdateProductsPayload = z.infer<typeof bulkUpdateProductsSchema>;

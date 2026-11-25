@@ -5,6 +5,8 @@ import { UserRole } from "../../generated/prisma/enums";
 import { productService } from "./product.service";
 import type { ProductFiles } from "./product.interface";
 import {
+    bulkTrashProductsSchema,
+    bulkUpdateProductsSchema,
     getAdminProductsQuerySchema,
     getAllProductsQuerySchema,
     getTrashedProductsQuerySchema,
@@ -137,6 +139,54 @@ export const productController = {
             statusCode: 200,
             success: true,
             message: "Product permanently deleted",
+        });
+    }),
+
+    getAdminSummary: catchAsync(async (req: Request, res: Response) => {
+        const result = await productService.getAdminSummary(req.user!.role as UserRole);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Product summary retrieved successfully",
+            data: result,
+        });
+    }),
+
+    bulkUpdateProducts: catchAsync(async (req: Request, res: Response) => {
+        const payload = bulkUpdateProductsSchema.parse(req.body);
+        const result = await productService.bulkUpdateProducts(payload);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: `${result.updated} product${result.updated === 1 ? "" : "s"} updated`,
+            data: result,
+        });
+    }),
+
+    bulkMoveToTrash: catchAsync(async (req: Request, res: Response) => {
+        const { productIds } = bulkTrashProductsSchema.parse(req.body);
+        const result = await productService.bulkMoveToTrash(productIds);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: `${result.trashed} product${result.trashed === 1 ? "" : "s"} moved to trash`,
+            data: result,
+        });
+    }),
+
+    duplicateProduct: catchAsync(async (req: Request, res: Response) => {
+        const { productId } = productIdParamSchema.parse(req.params);
+        const result = await productService.duplicateProduct(productId);
+
+        sendResponse(res, {
+            statusCode: 201,
+            success: true,
+            message: "Product duplicated as a draft",
+            data: result,
         });
     }),
 };

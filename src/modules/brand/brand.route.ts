@@ -14,13 +14,13 @@ const brandImages = upload.fields([
     { name: "metaImage", maxCount: 1 },
 ]);
 
-router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), brandImages, validateRequest(createBrandSchema), brandController.createBrand);
+router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), brandImages, validateRequest(createBrandSchema), brandController.createBrand);
 router.get("/", brandController.getPublicBrands);
-router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), brandController.getAllBrands);
+router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), brandController.getAllBrands);
 router.get("/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), brandController.getTrashedBrands);
-router.get("/admin/:brandId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), brandController.getBrandById);
+router.get("/admin/:brandId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), brandController.getBrandById);
 router.get("/:slug", brandController.getPublicBrandBySlug);
-router.put("/:brandId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), brandImages, validateRequest(updateBrandSchema), brandController.updateBrand);
+router.put("/:brandId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), brandImages, validateRequest(updateBrandSchema), brandController.updateBrand);
 router.patch("/:brandId/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), brandController.moveToTrash);
 router.patch("/:brandId/restore", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), brandController.restoreBrand);
 router.delete("/:brandId", Authentication(UserRole.SUPER_ADMIN), brandController.hardDeleteBrand);

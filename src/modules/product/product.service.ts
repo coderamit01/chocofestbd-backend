@@ -11,6 +11,8 @@ import { inStockWhere, outOfStockWhere } from "../../helpers/stock";
 import { getSetting } from "../setting/setting.service";
 import type { ProductFiles } from "./product.interface";
 import type {
+    AdminProductSortOption,
+    BulkUpdateProductsPayload,
     CreateProductPayload,
     GetAdminProductsQuery,
     GetAllProductsQuery,
@@ -21,7 +23,9 @@ import type {
 
 const MAX_GALLERY_IMAGES = 8;
 
-const COST_PRICE_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT];
+const COST_PRICE_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.ADMIN];
+
+const TRASH_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.ADMIN];
 
 const canSeeCostPrice = (role: UserRole | undefined) => role !== undefined && COST_PRICE_ROLES.includes(role);
 
@@ -48,6 +52,7 @@ const productSelect = {
         select: { id: true, url: true, alt: true, sortOrder: true },
         orderBy: { sortOrder: "asc" },
     },
+    collections: { select: { collectionId: true } },
     soldCount: true,
     averageRating: true,
     reviewCount: true,
@@ -81,6 +86,7 @@ const productAdminListSelect = {
     sku: true,
     status: true,
     lowStockThreshold: true,
+    soldCount: true,
     updatedAt: true,
 } satisfies Prisma.ProductSelect;
 
@@ -90,6 +96,22 @@ const productSortOrders: Record<ProductSortOption, Prisma.ProductOrderByWithRela
     price_high: [{ price: "desc" }],
     popular: [{ soldCount: "desc" }, { createdAt: "desc" }],
     rating: [{ averageRating: "desc" }, { reviewCount: "desc" }],
+};
+
+const adminProductSortOrders: Record<AdminProductSortOption, Prisma.ProductOrderByWithRelationInput[]> = {
+    ...productSortOrders,
+    stock_low: [{ stock: "asc" }, { createdAt: "desc" }],
+};
+
+const lowStockWhere: Prisma.ProductWhereInput = {
+    manageStock: true,
+    stock: { gt: 0, lte: prisma.product.fields.lowStockThreshold },
+};
+
+const adminStockWhere: Record<NonNullable<GetAdminProductsQuery["stock"]>, Prisma.ProductWhereInput> = {
+    in: inStockWhere,
+    low: lowStockWhere,
+    out: outOfStockWhere,
 };
 
 const makeSlug = async (name: string) => {
@@ -227,10 +249,14 @@ export const productService = {
     },
 
     getAdminProducts: async (query: GetAdminProductsQuery, role: UserRole) => {
-        const filters = await buildProductFilters(query, false);
+        const filters = await buildProductFilters({ ...query, sortBy: "newest" }, false);
 
         if (query.status) {
             filters.push({ status: query.status });
+        }
+
+        if (query.stock) {
+            filters.push(adminStockWhere[query.stock]);
         }
 
         const where: Prisma.ProductWhereInput = { AND: filters };
@@ -239,7 +265,7 @@ export const productService = {
             prisma.product.findMany({
                 where,
                 select: { ...productAdminListSelect, costPrice: canSeeCostPrice(role) },
-                orderBy: productSortOrders[query.sortBy],
+                orderBy: adminProductSortOrders[query.sortBy],
                 ...getPagination(query),
             }),
             prisma.product.count({ where }),
@@ -537,7 +563,11 @@ export const productService = {
                 metaImageKey = imageKey;
             }
 
-            const lastSortOrder = Math.max(-1, ...product.imageGallery.map((image) => image.sortOrder));
+            const lastSortOrder = Math.max(
+                -1,
+                payload.galleryOrder ? payload.galleryOrder.length - 1 : -1,
+                ...product.imageGallery.map((image) => image.sortOrder),
+            );
             const productName = payload.name ?? product.name;
             const newGalleryImages: Prisma.ProductImageCreateWithoutProductInput[] = [];
 
@@ -553,7 +583,23 @@ export const productService = {
                 });
             }
 
-            const { tagIds, removeGalleryImageIds, sku, ...productData } = payload;
+            const { tagIds, removeGalleryImageIds, galleryOrder, galleryAlts, sku, ...productData } = payload;
+
+            const keptGalleryIds = product.imageGallery
+                .map((image) => image.id)
+                .filter((id) => !removeGalleryIds.includes(id));
+            const orderedIds = galleryOrder?.filter((id) => keptGalleryIds.includes(id)) ?? [];
+            const galleryUpdates = keptGalleryIds
+                .map((id) => {
+                    const position = orderedIds.indexOf(id);
+                    const alt = galleryAlts?.[id];
+                    const imageData: Prisma.ProductImageUpdateWithoutProductInput = {
+                        ...(position >= 0 && { sortOrder: position }),
+                        ...(alt !== undefined && { alt: alt || productName }),
+                    };
+                    return { where: { id }, data: imageData };
+                })
+                .filter((update) => Object.keys(update.data).length > 0);
 
             const data: Prisma.ProductUncheckedUpdateInput = {
                 ...productData,
@@ -563,6 +609,7 @@ export const productService = {
                 metaImageKey,
                 imageGallery: {
                     deleteMany: { id: { in: removeGalleryIds } },
+                    update: galleryUpdates,
                     create: newGalleryImages,
                 },
             };
@@ -644,6 +691,113 @@ export const productService = {
             where: { id: productId },
             data: { deletedAt: null },
             select: productSelect,
+        });
+    },
+
+    getAdminSummary: async (role: UserRole) => {
+        const live: Prisma.ProductWhereInput = { deletedAt: null };
+        const canSeeTrash = TRASH_ROLES.includes(role);
+
+        const [all, active, draft, archived, lowStock, outOfStock, trash, categories, brands, tags] = await prisma.$transaction([
+            prisma.product.count({ where: live }),
+            prisma.product.count({ where: { ...live, status: ProductStatus.ACTIVE } }),
+            prisma.product.count({ where: { ...live, status: ProductStatus.DRAFT } }),
+            prisma.product.count({ where: { ...live, status: ProductStatus.ARCHIVED } }),
+            prisma.product.count({ where: { AND: [live, lowStockWhere] } }),
+            prisma.product.count({ where: { AND: [live, outOfStockWhere] } }),
+            prisma.product.count({ where: { deletedAt: canSeeTrash ? { not: null } : { equals: new Date(0) } } }),
+            prisma.category.findMany({ where: { deletedAt: null }, select: { id: true, name: true, slug: true }, orderBy: { name: "asc" } }),
+            prisma.brand.findMany({ where: { deletedAt: null }, select: { id: true, name: true, slug: true }, orderBy: { name: "asc" } }),
+            prisma.tag.findMany({ select: { id: true, name: true, slug: true }, orderBy: { name: "asc" } }),
+        ]);
+
+        return {
+            counts: { all, active, draft, archived, lowStock, outOfStock, ...(canSeeTrash && { trash }) },
+            categories,
+            brands,
+            tags,
+        };
+    },
+
+    bulkUpdateProducts: async ({ productIds, status, isFeatured, categoryId }: BulkUpdateProductsPayload) => {
+        if (categoryId) {
+            const category = await prisma.category.findFirst({ where: { id: categoryId, deletedAt: null }, select: { id: true } });
+
+            if (!category) {
+                throw new AppError("Category not found", 404);
+            }
+        }
+
+        const targets = await prisma.product.findMany({
+            where: { id: { in: productIds }, deletedAt: null },
+            select: { id: true, imageKey: true },
+        });
+
+        const blocked = status === ProductStatus.ACTIVE ? targets.filter((product) => !product.imageKey).map((product) => product.id) : [];
+        const allowed = targets.map((product) => product.id).filter((id) => !blocked.includes(id));
+
+        const data: Prisma.ProductUpdateManyMutationInput & { categoryId?: string } = {
+            ...(status && { status }),
+            ...(isFeatured !== undefined && { isFeatured }),
+            ...(categoryId && { categoryId }),
+        };
+
+        const { count } = allowed.length
+            ? await prisma.product.updateMany({ where: { id: { in: allowed } }, data })
+            : { count: 0 };
+
+        return { updated: count, skippedWithoutImage: blocked.length, notFound: productIds.length - targets.length };
+    },
+
+    bulkMoveToTrash: async (productIds: string[]) => {
+        const { count } = await prisma.product.updateMany({
+            where: { id: { in: productIds }, deletedAt: null },
+            data: { deletedAt: new Date() },
+        });
+
+        return { trashed: count };
+    },
+
+    duplicateProduct: async (productId: string) => {
+        const source = await prisma.product.findFirst({
+            where: { id: productId, deletedAt: null },
+            select: {
+                name: true,
+                shortDescription: true,
+                description: true,
+                price: true,
+                discountPrice: true,
+                costPrice: true,
+                stock: true,
+                lowStockThreshold: true,
+                manageStock: true,
+                stockStatus: true,
+                categoryId: true,
+                brandId: true,
+                metaTitle: true,
+                metaDescription: true,
+                tags: { select: { id: true } },
+            },
+        });
+
+        if (!source) {
+            throw new AppError("Product not found", 404);
+        }
+
+        const { tags, ...fields } = source;
+        const name = `${source.name} (copy)`.slice(0, 200);
+
+        return prisma.product.create({
+            data: {
+                ...fields,
+                name,
+                slug: await makeSlug(name),
+                sku: await makeSku(),
+                status: ProductStatus.DRAFT,
+                isFeatured: false,
+                tags: { connect: tags },
+            },
+            select: { id: true, name: true, slug: true, sku: true },
         });
     },
 

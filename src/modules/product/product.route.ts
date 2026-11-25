@@ -19,6 +19,12 @@ router.get("/", productController.getAllProducts);
 
 router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productController.getAdminProducts);
 
+router.get("/admin/summary", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productController.getAdminSummary);
+
+router.patch("/bulk", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productController.bulkUpdateProducts);
+
+router.patch("/bulk/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), productController.bulkMoveToTrash);
+
 router.get("/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), productController.getTrashedProducts);
 
 router.get("/:slug", productController.getProductBySlug);
@@ -26,6 +32,8 @@ router.get("/:slug", productController.getProductBySlug);
 router.get("/admin/:productId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productController.getProductById);
 
 router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productImages, validateRequest(createProductSchema), productController.createProduct);
+
+router.post("/:productId/duplicate", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productController.duplicateProduct);
 
 router.put("/:productId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), productImages, validateRequest(updateProductSchema), productController.updateProduct);
 

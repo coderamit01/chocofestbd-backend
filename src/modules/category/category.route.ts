@@ -14,13 +14,13 @@ const categoryImages = upload.fields([
     { name: "metaImage", maxCount: 1 },
 ]);
 
-router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), categoryImages, validateRequest(createCategorySchema), categoryController.createCategory);
+router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), categoryImages, validateRequest(createCategorySchema), categoryController.createCategory);
 router.get("/", categoryController.getCategoryTree);
-router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), categoryController.getAllCategories);
+router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), categoryController.getAllCategories);
 router.get("/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), categoryController.getTrashedCategories);
-router.get("/admin/:categoryId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), categoryController.getCategoryById);
+router.get("/admin/:categoryId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), categoryController.getCategoryById);
 router.get("/:slug", categoryController.getPublicCategoryBySlug);
-router.put("/:categoryId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), categoryImages, validateRequest(updateCategorySchema), categoryController.updateCategory);
+router.put("/:categoryId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER), categoryImages, validateRequest(updateCategorySchema), categoryController.updateCategory);
 router.patch("/:categoryId/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), categoryController.moveToTrash);
 router.patch("/:categoryId/restore", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), categoryController.restoreCategory);
 router.delete("/:categoryId", Authentication(UserRole.SUPER_ADMIN), categoryController.hardDeleteCategory);
