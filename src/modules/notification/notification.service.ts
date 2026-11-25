@@ -119,6 +119,7 @@ export const notificationService = {
         const where: Prisma.NotificationRecipientWhereInput = {
             userId,
             ...(query.unreadOnly && { readAt: null }),
+            ...(query.readOnly && !query.unreadOnly && { readAt: { not: null } }),
             ...((query.type || query.severity) && {
                 notification: {
                     ...(query.type && { type: query.type }),
@@ -167,6 +168,26 @@ export const notificationService = {
         });
 
         return { readAt };
+    },
+
+    markAsUnread: async (userId: string, notificationId: string) => {
+        const row = await prisma.notificationRecipient.findUnique({
+            where: { notificationId_userId: { notificationId, userId } },
+            select: { readAt: true },
+        });
+
+        if (!row) {
+            throw new AppError("Notification not found", 404);
+        }
+
+        if (row.readAt) {
+            await prisma.notificationRecipient.update({
+                where: { notificationId_userId: { notificationId, userId } },
+                data: { readAt: null },
+            });
+        }
+
+        return { readAt: null };
     },
 
     markAllAsRead: async (userId: string) => {

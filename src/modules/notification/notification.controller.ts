@@ -43,6 +43,18 @@ export const notificationController = {
         });
     }),
 
+    markAsUnread: catchAsync(async (req: Request, res: Response) => {
+        const { notificationId } = notificationIdParamSchema.parse(req.params);
+        const result = await notificationService.markAsUnread(req.user!.id, notificationId);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Notification marked as unread",
+            data: result,
+        });
+    }),
+
     sendTelegramTest: catchAsync(async (req: Request, res: Response) => {
         const result = await notificationService.sendTelegramTest(req.user!.name);
 

@@ -13,6 +13,7 @@ export const notificationIdParamSchema = z.object({
 
 export const getMyNotificationsQuerySchema = paginationQuerySchema.extend({
     unreadOnly: booleanQuery("unreadOnly"),
+    readOnly: booleanQuery("readOnly"),
     type: z
         .enum(NOTIFICATION_TYPE_KEYS as [NotificationType, ...NotificationType[]], { error: "Invalid notification type" })
         .optional(),

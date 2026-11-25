@@ -12,6 +12,7 @@ router.get("/unread-count", Authentication(...STAFF_ROLES), notificationControll
 router.post("/telegram/test", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), notificationController.sendTelegramTest);
 router.patch("/read-all", Authentication(...STAFF_ROLES), notificationController.markAllAsRead);
 router.patch("/:notificationId/read", Authentication(...STAFF_ROLES), notificationController.markAsRead);
+router.patch("/:notificationId/unread", Authentication(...STAFF_ROLES), notificationController.markAsUnread);
 
 
 export const notificationRoutes = router;
