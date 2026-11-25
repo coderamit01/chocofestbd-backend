@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { catchAsync } from "../../shared/catchAsync";
 import { sendResponse } from "../../shared/sendResponse";
+import { getTelegramStatus } from "../../lib/telegram";
 import { notificationService } from "./notification.service";
 import { getMyNotificationsQuerySchema, notificationIdParamSchema } from "./notification.validation";
 
@@ -51,6 +52,18 @@ export const notificationController = {
             statusCode: 200,
             success: true,
             message: "Notification marked as unread",
+            data: result,
+        });
+    }),
+
+    getTelegramStatus: catchAsync(async (_req: Request, res: Response) => {
+        const result = await getTelegramStatus();
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Telegram status retrieved successfully",
             data: result,
         });
     }),

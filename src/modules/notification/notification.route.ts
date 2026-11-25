@@ -9,6 +9,7 @@ const router = Router();
 
 router.get("/", Authentication(...STAFF_ROLES), notificationController.getMyNotifications);
 router.get("/unread-count", Authentication(...STAFF_ROLES), notificationController.getUnreadCount);
+router.get("/telegram/status", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), notificationController.getTelegramStatus);
 router.post("/telegram/test", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), notificationController.sendTelegramTest);
 router.patch("/read-all", Authentication(...STAFF_ROLES), notificationController.markAllAsRead);
 router.patch("/:notificationId/read", Authentication(...STAFF_ROLES), notificationController.markAsRead);
