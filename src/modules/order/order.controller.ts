@@ -5,11 +5,20 @@ import { catchAsync } from "../../shared/catchAsync";
 import { sendResponse } from "../../shared/sendResponse";
 import { orderService } from "./order.service";
 import {
+    customerLookupQuerySchema,
     getAllOrdersQuerySchema,
     getMyOrdersQuerySchema,
+    getPaymentsQuerySchema,
+    invoiceIdsQuerySchema,
+    orderCountsQuerySchema,
     orderIdParamSchema,
     trackOrderQuerySchema,
 } from "./order.validation";
+
+const sendData = <T>(res: Response, message: string, data: T, statusCode = 200) => {
+    res.setHeader("Cache-Control", "no-store");
+    sendResponse(res, { statusCode, success: true, message, data });
+};
 
 const getOptionalUserId = async (req: Request) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
@@ -120,8 +129,8 @@ export const orderController = {
         });
     }),
 
-    getOrderStatusCounts: catchAsync(async (_req: Request, res: Response) => {
-        const counts = await orderService.getOrderStatusCounts();
+    getOrderStatusCounts: catchAsync(async (req: Request, res: Response) => {
+        const counts = await orderService.getOrderStatusCounts(orderCountsQuerySchema.parse(req.query));
 
         res.setHeader("Cache-Control", "no-store");
         sendResponse(res, {
@@ -167,6 +176,71 @@ export const orderController = {
             message: "Payment status updated",
             data: order,
         });
+    }),
+
+    getOrderSummary: catchAsync(async (_req: Request, res: Response) => {
+        sendData(res, "Order summary retrieved successfully", await orderService.getOrderSummary());
+    }),
+
+    getOrderFilterOptions: catchAsync(async (_req: Request, res: Response) => {
+        sendData(res, "Order filters retrieved successfully", await orderService.getOrderFilterOptions());
+    }),
+
+    getOrderFormOptions: catchAsync(async (_req: Request, res: Response) => {
+        sendData(res, "Order form options retrieved successfully", await orderService.getOrderFormOptions());
+    }),
+
+    searchCustomers: catchAsync(async (req: Request, res: Response) => {
+        const { searchTerm } = customerLookupQuerySchema.parse(req.query);
+        sendData(res, "Customers retrieved successfully", await orderService.searchCustomers(searchTerm));
+    }),
+
+    createAdminOrder: catchAsync(async (req: Request, res: Response) => {
+        const order = await orderService.createAdminOrder(req.body, req.user!.id);
+        sendData(res, "Order created successfully", order, 201);
+    }),
+
+    bulkUpdateStatus: catchAsync(async (req: Request, res: Response) => {
+        const result = await orderService.bulkUpdateStatus(req.body, req.user!.id);
+        sendData(res, result.failed.length ? "Some orders could not be updated" : "Order status updated", result);
+    }),
+
+    getPayments: catchAsync(async (req: Request, res: Response) => {
+        const query = getPaymentsQuerySchema.parse(req.query);
+        const { payments, meta } = await orderService.getPayments(query);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Payments retrieved successfully",
+            data: payments,
+            meta,
+        });
+    }),
+
+    getPaymentSummary: catchAsync(async (_req: Request, res: Response) => {
+        sendData(res, "Payment summary retrieved successfully", await orderService.getPaymentSummary());
+    }),
+
+    rejectPayment: catchAsync(async (req: Request, res: Response) => {
+        const { orderId } = orderIdParamSchema.parse(req.params);
+        sendData(res, "Payment rejected", await orderService.rejectPayment(orderId, req.body, req.user!.id));
+    }),
+
+    recordRefund: catchAsync(async (req: Request, res: Response) => {
+        const { orderId } = orderIdParamSchema.parse(req.params);
+        sendData(res, "Refund recorded", await orderService.recordRefund(orderId, req.body, req.user!.id));
+    }),
+
+    getAdminInvoice: catchAsync(async (req: Request, res: Response) => {
+        const { orderId } = orderIdParamSchema.parse(req.params);
+        sendData(res, "Invoice retrieved successfully", await orderService.getAdminInvoice(orderId));
+    }),
+
+    getAdminInvoices: catchAsync(async (req: Request, res: Response) => {
+        const { ids } = invoiceIdsQuerySchema.parse(req.query);
+        sendData(res, "Invoices retrieved successfully", await orderService.getAdminInvoices(ids));
     }),
 
     updateAdminNote: catchAsync(async (req: Request, res: Response) => {

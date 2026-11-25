@@ -10,6 +10,7 @@ const router = Router();
 
 router.get("/", deliveryZoneController.getPublicDeliveryZones);
 router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), deliveryZoneController.getAllDeliveryZones);
+router.get("/admin/free-delivery", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), deliveryZoneController.getFreeDeliveryOffer);
 router.get("/admin/:zoneId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), deliveryZoneController.getDeliveryZoneById);
 router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(createDeliveryZoneSchema), deliveryZoneController.createDeliveryZone);
 router.put("/:zoneId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(updateDeliveryZoneSchema), deliveryZoneController.updateDeliveryZone);

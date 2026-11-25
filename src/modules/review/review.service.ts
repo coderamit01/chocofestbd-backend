@@ -6,6 +6,7 @@ import { deleteFile, getFileUrl, uploadFile } from "../../lib/storage";
 import { getPagination, paginationMeta } from "../../shared/pagination";
 import { notify } from "../notification/notification.service";
 import type {
+    BulkUpdateReviewStatusPayload,
     CreateReviewPayload,
     GetAllReviewsQuery,
     GetProductReviewsQuery,
@@ -294,6 +295,67 @@ export const reviewService = {
         }
 
         return review;
+    },
+
+    getReviewSummary: async () => {
+        const [byStatus, byRating, average] = await prisma.$transaction([
+            prisma.productReview.groupBy({ by: ["status"], _count: { _all: true }, orderBy: { status: "asc" } }),
+            prisma.productReview.groupBy({
+                by: ["rating"],
+                where: { status: ReviewStatus.APPROVED },
+                _count: { _all: true },
+                orderBy: { rating: "desc" },
+            }),
+            prisma.productReview.aggregate({ where: { status: ReviewStatus.APPROVED }, _avg: { rating: true } }),
+        ]);
+
+        const statusCount = (status: ReviewStatus) => {
+            const row = byStatus.find((group) => group.status === status);
+            return row?._count && typeof row._count === "object" ? (row._count._all ?? 0) : 0;
+        };
+
+        const breakdown = [5, 4, 3, 2, 1].map((rating) => {
+            const row = byRating.find((group) => group.rating === rating);
+            return { rating, count: row?._count && typeof row._count === "object" ? (row._count._all ?? 0) : 0 };
+        });
+
+        return {
+            counts: {
+                PENDING: statusCount(ReviewStatus.PENDING),
+                APPROVED: statusCount(ReviewStatus.APPROVED),
+                REJECTED: statusCount(ReviewStatus.REJECTED),
+            },
+            averageRating: Math.round((average._avg.rating ?? 0) * 10) / 10,
+            approvedCount: breakdown.reduce((sum, row) => sum + row.count, 0),
+            breakdown,
+        };
+    },
+
+    bulkUpdateReviewStatus: async (payload: BulkUpdateReviewStatusPayload) => {
+        const reviews = await prisma.productReview.findMany({
+            where: { id: { in: payload.reviewIds } },
+            select: { id: true, productId: true, status: true },
+        });
+
+        if (reviews.length !== payload.reviewIds.length) {
+            throw new AppError("One or more reviews were not found", 404);
+        }
+
+        const changed = reviews.filter((review) => review.status !== payload.status);
+        const productIds = [...new Set(changed.map((review) => review.productId))];
+
+        await prisma.$transaction(async (tx) => {
+            await tx.productReview.updateMany({
+                where: { id: { in: changed.map((review) => review.id) } },
+                data: { status: payload.status },
+            });
+
+            for (const productId of productIds) {
+                await recalculateProductRating(tx, productId);
+            }
+        });
+
+        return { updated: changed.length };
     },
 
     updateReviewStatus: async (reviewId: string, payload: UpdateReviewStatusPayload) => {

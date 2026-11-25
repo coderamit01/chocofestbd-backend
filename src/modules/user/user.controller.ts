@@ -3,7 +3,8 @@ import { catchAsync } from "../../shared/catchAsync";
 import { sendResponse } from "../../shared/sendResponse";
 import { UserRole } from "../../generated/prisma/enums";
 import { userService } from "./user.service";
-import { getAllUsersQuerySchema, userIdParamSchema } from "./user.validation";
+import { getAllUsersQuerySchema, getCustomersQuerySchema, userIdParamSchema } from "./user.validation";
+import { paginationQuerySchema } from "../../shared/pagination";
 
 export const userController = {
     getAllUsers: catchAsync(async (req: Request, res: Response) => {
@@ -21,7 +22,7 @@ export const userController = {
     }),
 
     getAllCustomers: catchAsync(async (req: Request, res: Response) => {
-        const query = getAllUsersQuerySchema.parse(req.query);
+        const query = getCustomersQuerySchema.parse(req.query);
         const { users, meta } = await userService.getAllCustomers(query);
 
         res.setHeader("Cache-Control", "no-store");
@@ -31,6 +32,58 @@ export const userController = {
             message: "Customers retrieved successfully",
             data: users,
             meta,
+        });
+    }),
+
+    getCustomerSummary: catchAsync(async (_req: Request, res: Response) => {
+        const summary = await userService.getCustomerSummary();
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Customer summary retrieved successfully",
+            data: summary,
+        });
+    }),
+
+    getCustomerProfile: catchAsync(async (req: Request, res: Response) => {
+        const { userId } = userIdParamSchema.parse(req.params);
+        const customer = await userService.getCustomerProfile(userId);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Customer retrieved successfully",
+            data: customer,
+        });
+    }),
+
+    getCustomerOrders: catchAsync(async (req: Request, res: Response) => {
+        const { userId } = userIdParamSchema.parse(req.params);
+        const query = paginationQuerySchema.parse(req.query);
+        const { orders, meta } = await userService.getCustomerOrders(userId, query);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Customer orders retrieved successfully",
+            data: orders,
+            meta,
+        });
+    }),
+
+    adjustCustomerPoints: catchAsync(async (req: Request, res: Response) => {
+        const { userId } = userIdParamSchema.parse(req.params);
+        const customer = await userService.adjustCustomerPoints(userId, req.body);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Points updated",
+            data: customer,
         });
     }),
 

@@ -85,3 +85,16 @@ export type CreateBannerPayload = z.infer<typeof createBannerSchema>;
 export type UpdateBannerPayload = z.infer<typeof updateBannerSchema>;
 export type GetPublicBannersQuery = z.infer<typeof getPublicBannersQuerySchema>;
 export type GetAllBannersQuery = z.infer<typeof getAllBannersQuerySchema>;
+
+export const reorderBannersSchema = z.strictObject(
+    {
+        bannerIds: z
+            .array(z.string().trim().min(1, { error: "Banner id cannot be empty" }), { error: "Banner ids must be a list" })
+            .min(1, { error: "Add at least one banner" })
+            .max(200, { error: "At most 200 banners are allowed" })
+            .refine((ids) => new Set(ids).size === ids.length, { error: "Banner ids must be unique" }),
+    },
+    { error: (issue) => (issue.code === "unrecognized_keys" ? `Field not allowed: ${issue.keys.join(", ")}` : undefined) },
+);
+
+export type ReorderBannersPayload = z.infer<typeof reorderBannersSchema>;

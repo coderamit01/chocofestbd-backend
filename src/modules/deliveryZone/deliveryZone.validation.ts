@@ -38,6 +38,11 @@ const zoneFields = {
         .min(0, { error: "Sort order cannot be negative" })
         .exactOptional(),
     isActive: z.boolean({ error: "isActive must be true or false" }).exactOptional(),
+    areas: z
+        .string({ error: "Areas must be a string" })
+        .trim()
+        .max(300, { error: "Areas must be at most 300 characters" })
+        .exactOptional(),
 };
 
 export const createDeliveryZoneSchema = z.strictObject(zoneFields, unrecognizedKeysError);

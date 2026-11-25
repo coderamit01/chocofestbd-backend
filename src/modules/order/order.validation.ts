@@ -174,19 +174,69 @@ export const getMyOrdersQuerySchema = paginationQuerySchema.extend({
     status: z.enum(OrderStatus, { error: "Invalid order status" }).optional(),
 });
 
+const filterText = (label: string) =>
+    z
+        .string({ error: `${label} must be a string` })
+        .trim()
+        .min(1, { error: `${label} cannot be empty` })
+        .max(100, { error: `${label} must be at most 100 characters` })
+        .optional();
+
+const orderFilterFields = {
+    paymentStatus: z.enum(PaymentStatus, { error: "Invalid payment status" }).optional(),
+    paymentMethod: z.enum(PaymentMethod, { error: "Invalid payment method" }).optional(),
+    deliveryZone: filterText("Delivery zone"),
+    district: filterText("District"),
+    coupon: z.enum(["yes", "no"], { error: "Coupon must be yes or no" }).optional(),
+    searchTerm: searchTermQuery,
+    from: dateQuery("from"),
+    to: dateQuery("to"),
+};
+
+const validDateRange = <T extends { from?: string | undefined; to?: string | undefined }>(data: T) =>
+    !(data.from && data.to && data.from > data.to);
+
 export const getAllOrdersQuerySchema = paginationQuerySchema
     .extend({
         status: z.enum(OrderStatus, { error: "Invalid order status" }).optional(),
-        paymentStatus: z.enum(PaymentStatus, { error: "Invalid payment status" }).optional(),
-        searchTerm: searchTermQuery,
-        from: dateQuery("from"),
-        to: dateQuery("to"),
+        ...orderFilterFields,
         sort: sortQuery,
     })
-    .refine((data) => !(data.from && data.to && data.from > data.to), {
+    .refine(validDateRange, {
         path: ["to"],
         error: "to must be on or after from",
     });
+
+export const orderCountsQuerySchema = z.object(orderFilterFields).refine(validDateRange, {
+    path: ["to"],
+    error: "to must be on or after from",
+});
+
+export const PAYMENT_VERIFICATION_STATUSES = ["PENDING", "VERIFIED", "REJECTED"] as const;
+
+export const getPaymentsQuerySchema = paginationQuerySchema.extend({
+    verification: z
+        .enum(PAYMENT_VERIFICATION_STATUSES, { error: "Verification must be PENDING, VERIFIED or REJECTED" })
+        .optional(),
+    paymentMethod: z
+        .enum(PaymentMethod, { error: "Invalid payment method" })
+        .refine((value) => value !== PaymentMethod.COD, { error: "Cash on delivery has no payment to verify" })
+        .optional(),
+    searchTerm: searchTermQuery,
+});
+
+export const invoiceIdsQuerySchema = z.object({
+    ids: z
+        .string({ error: "Order ids are required" })
+        .trim()
+        .min(1, { error: "Order ids are required" })
+        .transform((value) => [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))])
+        .refine((ids) => ids.length > 0 && ids.length <= 100, { error: "Send between 1 and 100 order ids" }),
+});
+
+export const customerLookupQuerySchema = z.object({
+    searchTerm: searchTermQuery,
+});
 
 export const trackOrderQuerySchema = z.object({
     orderNumber: z
@@ -244,6 +294,66 @@ export const updateAdminNoteSchema = z.strictObject(
     unrecognizedKeysError,
 );
 
+export const rejectPaymentSchema = z.strictObject(
+    {
+        reason: noteField("Reason", 300).exactOptional(),
+    },
+    unrecognizedKeysError,
+);
+
+export const recordRefundSchema = z.strictObject(
+    {
+        amount: z
+            .number({ error: "Amount must be a number" })
+            .positive({ error: "Amount must be more than 0" })
+            .max(10_000_000, { error: "Amount is too large" }),
+        reference: noteField("Refund reference", 100).exactOptional(),
+    },
+    unrecognizedKeysError,
+);
+
+export const bulkOrderStatusSchema = z.strictObject(
+    {
+        orderIds: z
+            .array(z.string({ error: "Order id must be a string" }).trim().min(1, { error: "Order id is required" }), {
+                error: "Order ids must be a list",
+            })
+            .min(1, { error: "Select at least one order" })
+            .max(100, { error: "At most 100 orders can be updated at once" }),
+        status: z.enum(OrderStatus, { error: "Invalid order status" }),
+        note: noteField("Note", 300).exactOptional(),
+    },
+    unrecognizedKeysError,
+);
+
+export const adminCreateOrderSchema = z
+    .strictObject(
+        {
+            recipientName: addressFields.recipientName,
+            recipientPhone: addressFields.recipientPhone,
+            email: checkoutFields.email,
+            address: addressFields.address,
+            district: addressFields.district,
+            area: addressFields.area,
+            deliveryZoneId: addressFields.deliveryZoneId,
+            items: checkoutFields.items.unwrap(),
+            couponCode: checkoutFields.couponCode,
+            customerNote: checkoutFields.customerNote,
+            paymentMethod: checkoutFields.paymentMethod,
+        },
+        unrecognizedKeysError,
+    )
+    .transform((data, ctx) => {
+        const area = findThana(data.district, data.area);
+
+        if (!area) {
+            ctx.addIssue({ code: "custom", path: ["area"], message: "Select a valid area for this district" });
+            return z.NEVER;
+        }
+
+        return { ...data, area: area.name };
+    });
+
 export type CheckoutPayload = z.infer<typeof checkoutSchema>;
 export type CheckoutPreviewPayload = z.infer<typeof checkoutPreviewSchema>;
 export type CheckoutItem = NonNullable<CheckoutPayload["items"]>[number];
@@ -255,3 +365,11 @@ export type UpdateOrderStatusPayload = z.infer<typeof updateOrderStatusSchema>;
 export type UpdatePaymentStatusPayload = z.infer<typeof updatePaymentStatusSchema>;
 export type UpdateAdminNotePayload = z.infer<typeof updateAdminNoteSchema>;
 export type OrderSortOption = (typeof orderSortOptions)[number];
+export type OrderCountsQuery = z.infer<typeof orderCountsQuerySchema>;
+export type OrderFilters = OrderCountsQuery & { status?: GetAllOrdersQuery["status"] };
+export type GetPaymentsQuery = z.infer<typeof getPaymentsQuerySchema>;
+export type PaymentVerificationStatus = (typeof PAYMENT_VERIFICATION_STATUSES)[number];
+export type RejectPaymentPayload = z.infer<typeof rejectPaymentSchema>;
+export type RecordRefundPayload = z.infer<typeof recordRefundSchema>;
+export type BulkOrderStatusPayload = z.infer<typeof bulkOrderStatusSchema>;
+export type AdminCreateOrderPayload = z.infer<typeof adminCreateOrderSchema>;

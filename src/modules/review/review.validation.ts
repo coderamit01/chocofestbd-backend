@@ -55,6 +55,18 @@ export const updateReviewStatusSchema = z.strictObject(
     unrecognizedKeysError,
 );
 
+export const bulkUpdateReviewStatusSchema = z.strictObject(
+    {
+        reviewIds: z
+            .array(idField("Review id"), { error: "Review ids must be a list" })
+            .min(1, { error: "Select at least one review" })
+            .max(100, { error: "At most 100 reviews can be updated at once" })
+            .transform((ids) => [...new Set(ids)]),
+        status: updateReviewStatusSchema.shape.status,
+    },
+    unrecognizedKeysError,
+);
+
 const ratingQuery = z.coerce
     .number({ error: "Rating must be a number" })
     .int({ error: "Rating must be a whole number" })
@@ -86,3 +98,4 @@ export type UpdateReviewStatusPayload = z.infer<typeof updateReviewStatusSchema>
 export type GetProductReviewsQuery = z.infer<typeof getProductReviewsQuerySchema>;
 export type GetAllReviewsQuery = z.infer<typeof getAllReviewsQuerySchema>;
 export type ReviewSortOption = (typeof reviewSortOptions)[number];
+export type BulkUpdateReviewStatusPayload = z.infer<typeof bulkUpdateReviewStatusSchema>;

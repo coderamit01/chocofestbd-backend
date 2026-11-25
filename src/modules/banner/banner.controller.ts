@@ -119,6 +119,16 @@ export const bannerController = {
         });
     }),
 
+    reorderBanners: catchAsync(async (req: Request, res: Response) => {
+        await bannerService.reorderBanners(req.body);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Banner order updated",
+        });
+    }),
+
     deleteBanner: catchAsync(async (req: Request, res: Response) => {
         const { bannerId } = bannerIdParamSchema.parse(req.params);
         await bannerService.deleteBanner(bannerId);

@@ -4,7 +4,7 @@ import { auth } from "../../lib/auth";
 import { catchAsync } from "../../shared/catchAsync";
 import { sendResponse } from "../../shared/sendResponse";
 import { couponService } from "./coupon.service";
-import { couponIdParamSchema, getAllCouponsQuerySchema } from "./coupon.validation";
+import { couponIdParamSchema, getAllCouponsQuerySchema, getCouponOrdersQuerySchema } from "./coupon.validation";
 
 export const couponController = {
     createCoupon: catchAsync(async (req: Request, res: Response) => {
@@ -42,6 +42,58 @@ export const couponController = {
             success: true,
             message: "Trashed coupons retrieved successfully",
             data: coupons,
+            meta,
+        });
+    }),
+
+    getCouponStats: catchAsync(async (_req: Request, res: Response) => {
+        const stats = await couponService.getCouponStats();
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Coupon stats retrieved successfully",
+            data: stats,
+        });
+    }),
+
+    getCouponOptions: catchAsync(async (_req: Request, res: Response) => {
+        const options = await couponService.getCouponOptions();
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Coupon options retrieved successfully",
+            data: options,
+        });
+    }),
+
+    getCouponInsights: catchAsync(async (req: Request, res: Response) => {
+        const { couponId } = couponIdParamSchema.parse(req.params);
+        const insights = await couponService.getCouponInsights(couponId);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Coupon insights retrieved successfully",
+            data: insights,
+        });
+    }),
+
+    getCouponOrders: catchAsync(async (req: Request, res: Response) => {
+        const { couponId } = couponIdParamSchema.parse(req.params);
+        const query = getCouponOrdersQuerySchema.parse(req.query);
+        const { orders, meta } = await couponService.getCouponOrders(couponId, query);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Coupon orders retrieved successfully",
+            data: orders,
             meta,
         });
     }),

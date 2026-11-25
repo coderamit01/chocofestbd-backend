@@ -30,4 +30,17 @@ export const dashboardController = {
             data: result,
         });
     }),
+
+    getOverview: catchAsync(async (req: Request, res: Response) => {
+        const query = dateRangeQuerySchema.parse(req.query);
+        const result = await dashboardService.getOverview(query);
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Dashboard overview retrieved successfully",
+            data: result,
+        });
+    }),
 };

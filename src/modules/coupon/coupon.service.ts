@@ -3,10 +3,12 @@ import { AppError } from "../../helpers/AppError";
 import { Prisma } from "../../generated/prisma/client";
 import { CouponScope, DiscountType, OrderStatus, ProductStatus } from "../../generated/prisma/enums";
 import { paginationMeta, getPagination } from "../../shared/pagination";
+import { DAY_MS, NON_REVENUE_STATUSES, lastWeekRanges, monthToDateRanges, percentChange, startOfStoreDay, storeDateKey, toNumber } from "../../shared/periods";
 import type {
     ApplyCouponPayload,
     CreateCouponPayload,
     GetAllCouponsQuery,
+    GetCouponOrdersQuery,
     UpdateCouponPayload,
 } from "./coupon.validation";
 
@@ -184,6 +186,39 @@ const expandCategoryIds = async (categoryIds: string[]) => {
 
 const round = (value: Decimal) => value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
+type CouponStatusFilter = NonNullable<GetAllCouponsQuery["status"]>;
+
+const couponStatusWhere = (status: CouponStatusFilter, now: Date): Prisma.CouponWhereInput => {
+    const started: Prisma.CouponWhereInput = { OR: [{ startsAt: null }, { startsAt: { lte: now } }] };
+    const usedUp: Prisma.CouponWhereInput = { usageLimit: { not: null }, usedCount: { gte: prisma.coupon.fields.usageLimit } };
+
+    if (status === "disabled") return { isActive: false };
+    if (status === "scheduled") return { isActive: true, startsAt: { gt: now } };
+    if (status === "expired") return { isActive: true, AND: [started, { OR: [{ expiresAt: { lte: now } }, usedUp] }] };
+
+    return { isActive: true, AND: [started, { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }, { NOT: usedUp }] };
+};
+
+const couponOrderTotals = async (where: Prisma.OrderWhereInput) => {
+    const result = await prisma.order.aggregate({
+        where: { ...where, status: { notIn: NON_REVENUE_STATUSES } },
+        _count: { _all: true },
+        _sum: { discountAmount: true, total: true },
+    });
+
+    const count = result._count._all;
+    const revenue = toNumber(result._sum.total);
+
+    return {
+        count,
+        discount: toNumber(result._sum.discountAmount),
+        revenue,
+        average: count ? Math.round(revenue / count) : 0,
+    };
+};
+
+const USES_CHART_DAYS = 14;
+
 export const couponService = {
     createCoupon: async (payload: CreateCouponPayload) => {
         const { productIds = [], categoryIds = [], ...data } = payload;
@@ -225,22 +260,23 @@ export const couponService = {
         scope: Prisma.CouponWhereInput = { deletedAt: null },
         orderBy: Prisma.CouponOrderByWithRelationInput = { createdAt: "desc" },
     ) => {
-        const { isActive, discountType, scope: couponScope, searchTerm } = query;
+        const { isActive, discountType, scope: couponScope, status, searchTerm } = query;
 
         const where: Prisma.CouponWhereInput = {
             ...scope,
             ...(isActive !== undefined && { isActive }),
             ...(discountType && { discountType }),
             ...(couponScope && { scope: couponScope }),
+            ...(status && couponStatusWhere(status, new Date())),
             ...(searchTerm && { code: { contains: searchTerm, mode: "insensitive" } }),
         };
 
         const [coupons, total] = await prisma.$transaction([
-            prisma.coupon.findMany({ where, select: couponListSelect, orderBy, ...getPagination(query) }),
+            prisma.coupon.findMany({ where, select: couponDetailSelect, orderBy, ...getPagination(query) }),
             prisma.coupon.count({ where }),
         ]);
 
-        return { coupons, meta: paginationMeta(query, total) };
+        return { coupons: coupons.map(formatCoupon), meta: paginationMeta(query, total) };
     },
 
     getTrashedCoupons: async (query: GetAllCouponsQuery) => {
@@ -358,6 +394,118 @@ export const couponService = {
         }
 
         await prisma.coupon.delete({ where: { id: couponId } });
+    },
+
+    getCouponStats: async () => {
+        const now = new Date();
+        const month = monthToDateRanges(now);
+        const used: Prisma.OrderWhereInput = { couponId: { not: null } };
+
+        const [activeCoupons, current, previous] = await Promise.all([
+            prisma.coupon.count({ where: { deletedAt: null, ...couponStatusWhere("active", now) } }),
+            couponOrderTotals({ ...used, createdAt: month.current }),
+            couponOrderTotals({ ...used, createdAt: month.previous }),
+        ]);
+
+        return {
+            activeCoupons,
+            usesThisMonth: { value: current.count, change: percentChange(current.count, previous.count) },
+            discountGiven: { value: current.discount, change: percentChange(current.discount, previous.discount) },
+            revenue: { value: current.revenue, change: percentChange(current.revenue, previous.revenue) },
+        };
+    },
+
+    getCouponInsights: async (couponId: string) => {
+        const coupon = await prisma.coupon.findUnique({ where: { id: couponId }, select: { id: true } });
+
+        if (!coupon) {
+            throw new AppError("Coupon not found", 404);
+        }
+
+        const now = new Date();
+        const week = lastWeekRanges(now);
+        const chartStart = new Date(startOfStoreDay(now).getTime() - (USES_CHART_DAYS - 1) * DAY_MS);
+
+        const [all, current, previous, recent] = await Promise.all([
+            couponOrderTotals({ couponId }),
+            couponOrderTotals({ couponId, createdAt: week.current }),
+            couponOrderTotals({ couponId, createdAt: week.previous }),
+            prisma.order.findMany({
+                where: { couponId, status: { notIn: NON_REVENUE_STATUSES }, createdAt: { gte: chartStart } },
+                select: { createdAt: true },
+            }),
+        ]);
+
+        const perDay = new Map<string, number>();
+        for (const order of recent) {
+            const key = storeDateKey(order.createdAt);
+            perDay.set(key, (perDay.get(key) ?? 0) + 1);
+        }
+
+        return {
+            timesUsed: { value: all.count, change: percentChange(current.count, previous.count) },
+            discountGiven: { value: all.discount, change: percentChange(current.discount, previous.discount) },
+            revenue: { value: all.revenue, change: percentChange(current.revenue, previous.revenue) },
+            averageOrderValue: { value: all.average, change: percentChange(current.average, previous.average) },
+            usesPerDay: Array.from({ length: USES_CHART_DAYS }, (_, index) => {
+                const date = storeDateKey(new Date(chartStart.getTime() + index * DAY_MS));
+                return { date, count: perDay.get(date) ?? 0 };
+            }),
+        };
+    },
+
+    getCouponOrders: async (couponId: string, query: GetCouponOrdersQuery) => {
+        const { searchTerm } = query;
+        const where: Prisma.OrderWhereInput = {
+            couponId,
+            ...(searchTerm && {
+                OR: [
+                    { orderNumber: { contains: searchTerm, mode: "insensitive" } },
+                    { recipientName: { contains: searchTerm, mode: "insensitive" } },
+                    { user: { name: { contains: searchTerm, mode: "insensitive" } } },
+                ],
+            }),
+        };
+
+        const [orders, total] = await prisma.$transaction([
+            prisma.order.findMany({
+                where,
+                select: {
+                    id: true,
+                    orderNumber: true,
+                    recipientName: true,
+                    user: { select: { id: true, name: true } },
+                    createdAt: true,
+                    subtotal: true,
+                    discountAmount: true,
+                    total: true,
+                    status: true,
+                },
+                orderBy: { createdAt: "desc" },
+                ...getPagination(query),
+            }),
+            prisma.order.count({ where }),
+        ]);
+
+        return { orders, meta: paginationMeta(query, total) };
+    },
+
+    getCouponOptions: async () => {
+        const [products, categories] = await Promise.all([
+            prisma.product.findMany({
+                where: { deletedAt: null },
+                select: { id: true, name: true },
+                orderBy: [{ soldCount: "desc" }, { name: "asc" }],
+                take: 300,
+            }),
+            prisma.category.findMany({
+                where: { deletedAt: null },
+                select: { id: true, name: true },
+                orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+            }),
+        ]);
+
+        return { products, categories };
     },
 
     calculateDiscount: async (payload: ApplyCouponPayload, userId?: string) => {

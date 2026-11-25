@@ -4,7 +4,7 @@ import Authentication from "../../middlewares/Authentication";
 import { validateRequest } from "../../middlewares/validateRequest";
 import { upload } from "../../middlewares/upload";
 import { reviewController } from "./review.controller";
-import { createReviewSchema, updateReviewSchema, updateReviewStatusSchema } from "./review.validation";
+import { bulkUpdateReviewStatusSchema, createReviewSchema, updateReviewSchema, updateReviewStatusSchema } from "./review.validation";
 
 
 const router = Router();
@@ -15,9 +15,13 @@ router.post("/", Authentication(), upload.single("image"), validateRequest(creat
 router.put("/:reviewId", Authentication(), upload.single("image"), validateRequest(updateReviewSchema), reviewController.updateMyReview);
 router.delete("/:reviewId", Authentication(), reviewController.deleteMyReview);
 
-router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), reviewController.getAllReviews);
-router.get("/admin/:reviewId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), reviewController.getReviewById);
-router.patch("/admin/:reviewId/status", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(updateReviewStatusSchema), reviewController.updateReviewStatus);
+const REVIEW_MODERATORS = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER];
+
+router.get("/admin", Authentication(...REVIEW_MODERATORS), reviewController.getAllReviews);
+router.get("/admin/summary", Authentication(...REVIEW_MODERATORS), reviewController.getReviewSummary);
+router.patch("/admin/bulk/status", Authentication(...REVIEW_MODERATORS), validateRequest(bulkUpdateReviewStatusSchema), reviewController.bulkUpdateReviewStatus);
+router.get("/admin/:reviewId", Authentication(...REVIEW_MODERATORS), reviewController.getReviewById);
+router.patch("/admin/:reviewId/status", Authentication(...REVIEW_MODERATORS), validateRequest(updateReviewStatusSchema), reviewController.updateReviewStatus);
 router.delete("/admin/:reviewId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), reviewController.deleteReview);
 
 

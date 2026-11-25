@@ -41,6 +41,18 @@ export const deliveryZoneController = {
         });
     }),
 
+    getFreeDeliveryOffer: catchAsync(async (_req: Request, res: Response) => {
+        const offer = await deliveryZoneService.getFreeDeliveryOffer();
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Free delivery offer retrieved successfully",
+            data: offer,
+        });
+    }),
+
     getDeliveryZoneById: catchAsync(async (req: Request, res: Response) => {
         const { zoneId } = deliveryZoneIdParamSchema.parse(req.params);
         const zone = await deliveryZoneService.getDeliveryZoneById(zoneId);

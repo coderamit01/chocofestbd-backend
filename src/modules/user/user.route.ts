@@ -4,13 +4,20 @@ import { userController } from "./user.controller";
 import Authentication from "../../middlewares/Authentication";
 import { validateRequest } from "../../middlewares/validateRequest";
 import { upload } from "../../middlewares/upload";
-import { updateUserSchema } from "./user.validation";
+import { adjustPointsSchema, updateUserSchema } from "./user.validation";
 
 
 const router = Router();
 
+const CUSTOMER_VIEWERS = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER, UserRole.ORDER_HANDLER];
+const CUSTOMER_EDITORS = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER];
+
 router.get("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), userController.getAllUsers);
-router.get("/customers", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), userController.getAllCustomers);
+router.get("/customers", Authentication(...CUSTOMER_VIEWERS), userController.getAllCustomers);
+router.get("/customers/summary", Authentication(...CUSTOMER_VIEWERS), userController.getCustomerSummary);
+router.get("/customers/:userId", Authentication(...CUSTOMER_VIEWERS), userController.getCustomerProfile);
+router.get("/customers/:userId/orders", Authentication(...CUSTOMER_VIEWERS), userController.getCustomerOrders);
+router.patch("/customers/:userId/points", Authentication(...CUSTOMER_EDITORS), validateRequest(adjustPointsSchema), userController.adjustCustomerPoints);
 router.get("/trash", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), userController.getTrashedUsers);
 router.get("/:userId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), userController.getUserById);
 

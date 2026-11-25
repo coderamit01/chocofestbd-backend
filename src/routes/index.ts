@@ -19,6 +19,8 @@ import { collectionRoutes } from "../modules/collection/collection.route";
 import { settingRoutes } from "../modules/setting/setting.route";
 import { notificationRoutes } from "../modules/notification/notification.route";
 import { dashboardRoutes } from "../modules/dashboard/dashboard.route";
+import { riderRoutes } from "../modules/rider/rider.route";
+import { staffRoutes } from "../modules/staff/staff.route";
 
 
 const router = Router();
@@ -43,6 +45,8 @@ router.use("/collections", collectionRoutes);
 router.use("/settings", settingRoutes);
 router.use("/notifications", notificationRoutes);
 router.use("/dashboard", dashboardRoutes);
+router.use("/rider", riderRoutes);
+router.use("/staff", staffRoutes);
 
 
 export const IndexRoutes = router;

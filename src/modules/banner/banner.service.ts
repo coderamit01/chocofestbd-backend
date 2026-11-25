@@ -8,6 +8,7 @@ import type {
     CreateBannerPayload,
     GetAllBannersQuery,
     GetPublicBannersQuery,
+    ReorderBannersPayload,
     UpdateBannerPayload,
 } from "./banner.validation";
 
@@ -62,7 +63,7 @@ export const bannerService = {
     getAllBannerCategories: async () => {
         return prisma.bannerCategory.findMany({
             select: bannerCategorySelect,
-            orderBy: { name: "asc" },
+            orderBy: { createdAt: "asc" },
         });
     },
 
@@ -223,6 +224,18 @@ export const bannerService = {
         await deleteFile(banner.imageKey);
 
         return updated;
+    },
+
+    reorderBanners: async (payload: ReorderBannersPayload) => {
+        const count = await prisma.banner.count({ where: { id: { in: payload.bannerIds } } });
+
+        if (count !== payload.bannerIds.length) {
+            throw new AppError("One or more banners were not found", 404);
+        }
+
+        await prisma.$transaction(
+            payload.bannerIds.map((id, index) => prisma.banner.update({ where: { id }, data: { sortOrder: index + 1 } })),
+        );
     },
 
     deleteBanner: async (bannerId: string) => {

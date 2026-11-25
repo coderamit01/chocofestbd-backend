@@ -3,12 +3,21 @@ import { prisma } from "../../lib/prisma";
 import { AppError } from "../../helpers/AppError";
 import { Prisma } from "../../generated/prisma/client";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus, UserRole } from "../../generated/prisma/enums";
-import { getStockError, stockSelect } from "../../helpers/stock";
+import { getStockError, inStockWhere, stockSelect } from "../../helpers/stock";
 import { getPagination, paginationMeta } from "../../shared/pagination";
 import { couponService } from "../coupon/coupon.service";
 import { getSetting, settingService } from "../setting/setting.service";
 import { notify } from "../notification/notification.service";
+import { locationService } from "../location/location.service";
 import type {
+    AdminCreateOrderPayload,
+    BulkOrderStatusPayload,
+    GetPaymentsQuery,
+    OrderCountsQuery,
+    OrderFilters,
+    PaymentVerificationStatus,
+    RecordRefundPayload,
+    RejectPaymentPayload,
     CancelMyOrderPayload,
     CheckoutItem,
     CheckoutPayload,
@@ -433,11 +442,19 @@ const trackOrderSelect = {
 
 const adminOrderListSelect = {
     ...orderListSelect,
+    invoiceNumber: true,
     recipientName: true,
     recipientPhone: true,
+    recipientEmail: true,
     district: true,
     area: true,
+    deliveryZoneName: true,
     couponCode: true,
+    subtotal: true,
+    discountAmount: true,
+    deliveryCharge: true,
+    paymentSender: true,
+    paymentTransactionId: true,
     user: { select: { id: true, name: true } },
 } satisfies Prisma.OrderSelect;
 
@@ -576,10 +593,20 @@ const invoiceSelect = {
 
 type InvoiceOrder = Prisma.OrderGetPayload<{ select: typeof invoiceSelect }>;
 
-const buildInvoice = async (order: InvoiceOrder & { invoiceNumber: string }) => {
-    const { value: store, images } = await settingService.getSettingGroup("general");
+const loadInvoiceStore = async () => {
+    const { value, images } = await settingService.getSettingGroup("general");
 
+    return { store: value, logo: images.logo ?? null };
+};
+
+type InvoiceStore = Awaited<ReturnType<typeof loadInvoiceStore>>;
+
+const buildInvoice = async (order: InvoiceOrder & { invoiceNumber: string }) =>
+    toInvoice(order, await loadInvoiceStore());
+
+const toInvoice = (order: InvoiceOrder & { invoiceNumber: string }, { store, logo }: InvoiceStore) => {
     return {
+        id: order.id,
         invoiceNumber: order.invoiceNumber,
         orderNumber: order.orderNumber,
         orderStatus: order.status,
@@ -588,8 +615,9 @@ const buildInvoice = async (order: InvoiceOrder & { invoiceNumber: string }) => 
         deliveredAt: order.deliveredAt,
         store: {
             name: store.storeName,
-            logo: images.logo ?? null,
+            logo,
             phone: store.phone,
+            whatsapp: store.whatsapp,
             email: store.email,
             address: store.address,
         },
@@ -626,6 +654,152 @@ const buildInvoice = async (order: InvoiceOrder & { invoiceNumber: string }) => 
         },
         customerNote: order.customerNote,
     };
+};
+
+const PAYMENT_REJECTED_NOTE = "Payment rejected";
+const REFUND_NOTE = /^Refund ৳(\d+(?:\.\d+)?) recorded/;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+const percentChange = (current: number, previous: number) =>
+    previous === 0 ? null : Math.round(((current - previous) / previous) * 1000) / 10;
+
+const withInvoiceNumber = <T extends { orderNumber: string; invoiceNumber: string | null }>(order: T, prefix: string) => ({
+    ...order,
+    invoiceNumber: order.invoiceNumber ?? buildInvoiceNumber(prefix, order.orderNumber),
+});
+
+const digitsOnly = (value: string) => value.replace(/[-\s]/g, "");
+
+const orderSearchFilter = (searchTerm: string): Prisma.OrderWhereInput => {
+    const digits = digitsOnly(searchTerm);
+    const phoneTerm = /^\+?\d+$/.test(digits) ? digits.replace(/^\+?88/, "") : searchTerm;
+
+    return {
+        OR: [
+            { orderNumber: { contains: searchTerm, mode: "insensitive" } },
+            { invoiceNumber: { contains: searchTerm, mode: "insensitive" } },
+            { recipientPhone: { contains: phoneTerm } },
+            { recipientName: { contains: searchTerm, mode: "insensitive" } },
+            { recipientEmail: { contains: searchTerm, mode: "insensitive" } },
+            { paymentTransactionId: { contains: searchTerm, mode: "insensitive" } },
+            { paymentSender: { contains: phoneTerm } },
+        ],
+    };
+};
+
+const buildOrderWhere = (filters: OrderFilters): Prisma.OrderWhereInput => {
+    const createdAt = buildDateFilter(filters.from, filters.to);
+
+    return {
+        ...(filters.status && { status: filters.status }),
+        ...(filters.paymentStatus && { paymentStatus: filters.paymentStatus }),
+        ...(filters.paymentMethod && { paymentMethod: filters.paymentMethod }),
+        ...(filters.deliveryZone && { deliveryZoneName: { equals: filters.deliveryZone, mode: "insensitive" } }),
+        ...(filters.district && { district: { equals: filters.district, mode: "insensitive" } }),
+        ...(filters.coupon === "yes" && { couponCode: { not: null } }),
+        ...(filters.coupon === "no" && { couponCode: null }),
+        ...(createdAt && { createdAt }),
+        ...(filters.searchTerm && orderSearchFilter(filters.searchTerm)),
+    };
+};
+
+const verificationOf = (order: {
+    paymentMethod: PaymentMethod;
+    paymentStatus: PaymentStatus;
+    paymentVerifiedAt: Date | null;
+}): PaymentVerificationStatus | null => {
+    if (order.paymentMethod === PaymentMethod.COD) return null;
+    if (order.paymentStatus !== PaymentStatus.UNPAID) return "VERIFIED";
+
+    return order.paymentVerifiedAt ? "REJECTED" : "PENDING";
+};
+
+const verificationWhere: Record<PaymentVerificationStatus, Prisma.OrderWhereInput> = {
+    PENDING: {
+        paymentStatus: PaymentStatus.UNPAID,
+        paymentVerifiedAt: null,
+        status: { notIn: [OrderStatus.CANCELLED, OrderStatus.RETURNED] },
+    },
+    VERIFIED: { paymentStatus: { not: PaymentStatus.UNPAID } },
+    REJECTED: { paymentStatus: PaymentStatus.UNPAID, paymentVerifiedAt: { not: null } },
+};
+
+const rejectReasonOf = (note: string | null | undefined) => {
+    if (!note?.startsWith(PAYMENT_REJECTED_NOTE)) return null;
+
+    return note.slice(PAYMENT_REJECTED_NOTE.length).replace(/^\s*[—:-]\s*/, "").trim() || null;
+};
+
+const refundedAmountOf = (order: { total: Decimal; paymentStatus: PaymentStatus; statusHistory: { note: string | null }[] }) => {
+    const recorded = order.statusHistory.reduce((sum, entry) => {
+        const match = entry.note?.match(REFUND_NOTE);
+        return match ? sum.add(match[1]!) : sum;
+    }, new Decimal(0));
+
+    if (order.paymentStatus === PaymentStatus.REFUNDED && recorded.isZero()) return order.total;
+
+    return Decimal.min(recorded, order.total);
+};
+
+const userNames = async (ids: (string | null | undefined)[]) => {
+    const unique = [...new Set(ids.filter((id): id is string => !!id))];
+
+    if (!unique.length) return new Map<string, string>();
+
+    const users = await prisma.user.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } });
+
+    return new Map(users.map((user) => [user.id, user.name]));
+};
+
+const dhakaDayStart = (offsetDays = 0) => {
+    const local = new Date(Date.now() + BD_OFFSET_MS);
+    const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) - BD_OFFSET_MS;
+
+    return new Date(midnight + offsetDays * DAY_MS);
+};
+
+const paymentListSelect = {
+    id: true,
+    orderNumber: true,
+    status: true,
+    recipientName: true,
+    paymentMethod: true,
+    paymentStatus: true,
+    paymentSender: true,
+    paymentTransactionId: true,
+    paymentVerifiedAt: true,
+    paymentVerifiedById: true,
+    total: true,
+    createdAt: true,
+    statusHistory: {
+        where: { note: { startsWith: PAYMENT_REJECTED_NOTE } },
+        select: { note: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+    },
+} satisfies Prisma.OrderSelect;
+
+type PaymentListOrder = Prisma.OrderGetPayload<{ select: typeof paymentListSelect }>;
+
+const toPaymentRows = async (orders: PaymentListOrder[]) => {
+    const names = await userNames(orders.map((order) => order.paymentVerifiedById));
+
+    return orders.map((order) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderStatus: order.status,
+        recipientName: order.recipientName,
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        sender: order.paymentSender,
+        transactionId: order.paymentTransactionId,
+        amount: order.total,
+        submittedAt: order.createdAt,
+        verification: verificationOf(order) ?? "PENDING",
+        verifiedAt: order.paymentVerifiedAt,
+        verifiedBy: order.paymentVerifiedById ? (names.get(order.paymentVerifiedById) ?? null) : null,
+        rejectReason: rejectReasonOf(order.statusHistory[0]?.note),
+    }));
 };
 
 const BD_OFFSET = "+06:00";
@@ -1026,25 +1200,9 @@ export const orderService = {
     },
 
     getAllOrders: async (query: GetAllOrdersQuery) => {
-        const createdAt = buildDateFilter(query.from, query.to);
-        const where: Prisma.OrderWhereInput = {
-            ...(query.status && { status: query.status }),
-            ...(query.paymentStatus && { paymentStatus: query.paymentStatus }),
-            ...(createdAt && { createdAt }),
-            ...(query.searchTerm && {
-                OR: [
-                    { orderNumber: { contains: query.searchTerm, mode: "insensitive" } },
-                    { invoiceNumber: { contains: query.searchTerm, mode: "insensitive" } },
-                    { recipientPhone: { contains: query.searchTerm } },
-                    { recipientName: { contains: query.searchTerm, mode: "insensitive" } },
-                    { recipientEmail: { contains: query.searchTerm, mode: "insensitive" } },
-                    { paymentTransactionId: { contains: query.searchTerm, mode: "insensitive" } },
-                    { paymentSender: { contains: query.searchTerm } },
-                ],
-            }),
-        };
+        const where = buildOrderWhere(query);
 
-        const [orders, total] = await Promise.all([
+        const [orders, total, numbering] = await Promise.all([
             prisma.order.findMany({
                 where,
                 select: adminOrderListSelect,
@@ -1052,14 +1210,19 @@ export const orderService = {
                 ...getPagination(query),
             }),
             prisma.order.count({ where }),
+            getSetting("numbering"),
         ]);
 
-        return { orders, meta: paginationMeta(query, total) };
+        return {
+            orders: orders.map((order) => withInvoiceNumber(order, numbering.invoicePrefix)),
+            meta: paginationMeta(query, total),
+        };
     },
 
-    getOrderStatusCounts: async () => {
+    getOrderStatusCounts: async (filters: OrderCountsQuery = {}) => {
         const groups = await prisma.order.groupBy({
             by: ["status"],
+            where: buildOrderWhere(filters),
             _count: { _all: true },
         });
 
@@ -1078,14 +1241,505 @@ export const orderService = {
     getOrderById: async (orderId: string) => {
         const order = await prisma.order.findUnique({
             where: { id: orderId },
-            select: adminOrderSelect,
+            select: {
+                ...adminOrderSelect,
+                user: {
+                    select: { id: true, name: true, email: true, phone: true, _count: { select: { orders: true } } },
+                },
+            },
         });
 
         if (!order) {
             throw new AppError("Order not found", 404);
         }
 
+        const productIds = order.items.map((item) => item.productId).filter((id): id is string => !!id);
+
+        const [numbering, zone, products, names, rejected] = await Promise.all([
+            getSetting("numbering"),
+            prisma.deliveryZone.findUnique({
+                where: { name: order.deliveryZoneName },
+                select: { charge: true, estimatedDays: true },
+            }),
+            prisma.product.findMany({
+                where: { id: { in: productIds } },
+                select: { id: true, category: { select: { name: true } } },
+            }),
+            userNames([order.paymentVerifiedById]),
+            prisma.orderStatusHistory.findFirst({
+                where: { orderId: order.id, note: { startsWith: PAYMENT_REJECTED_NOTE } },
+                select: { note: true },
+                orderBy: { createdAt: "desc" },
+            }),
+        ]);
+
+        const categories = new Map(products.map((product) => [product.id, product.category.name]));
+        const placedBy = order.statusHistory[0]?.changedBy;
+        const { user, ...rest } = order;
+        const email = user?.email && !user.email.endsWith(`@${GUEST_EMAIL_DOMAIN}`) ? user.email : null;
+
+        return {
+            ...withInvoiceNumber(rest, numbering.invoicePrefix),
+            user: user && { id: user.id, name: user.name, email, phone: user.phone },
+            customerOrderCount: user?._count.orders ?? 1,
+            items: order.items.map((item) => ({
+                ...item,
+                categoryName: item.productId ? (categories.get(item.productId) ?? null) : null,
+            })),
+            source: placedBy && placedBy.role !== UserRole.CUSTOMER ? "staff" : "website",
+            deliveryZone: { name: order.deliveryZoneName, estimatedDays: zone?.estimatedDays ?? null },
+            nextStatuses: allowedNextStatuses[order.status],
+            refundedAmount: refundedAmountOf(order),
+            paymentVerification: {
+                status: verificationOf(order),
+                verifiedAt: order.paymentVerifiedAt,
+                verifiedBy: order.paymentVerifiedById ? (names.get(order.paymentVerifiedById) ?? null) : null,
+                rejectReason: rejectReasonOf(rejected?.note),
+            },
+        };
+    },
+
+    getOrderSummary: async () => {
+        const now = Date.now();
+        const countBy = (createdAt?: Prisma.DateTimeFilter) =>
+            prisma.order.groupBy({ by: ["status"], ...(createdAt && { where: { createdAt } }), _count: { _all: true } });
+
+        const [totals, current, previous] = await Promise.all([
+            countBy(),
+            countBy({ gte: new Date(now - WEEK_MS) }),
+            countBy({ gte: new Date(now - 2 * WEEK_MS), lt: new Date(now - WEEK_MS) }),
+        ]);
+
+        const pick = (groups: typeof totals, status?: OrderStatus) =>
+            groups.filter((group) => !status || group.status === status).reduce((sum, group) => sum + group._count._all, 0);
+
+        const metric = (status?: OrderStatus) => ({
+            value: pick(totals, status),
+            change: percentChange(pick(current, status), pick(previous, status)),
+        });
+
+        return {
+            total: metric(),
+            pending: metric(OrderStatus.PENDING),
+            shipped: metric(OrderStatus.SHIPPED),
+            delivered: metric(OrderStatus.DELIVERED),
+        };
+    },
+
+    getOrderFilterOptions: async () => {
+        const [zones, orderZones, districts] = await Promise.all([
+            prisma.deliveryZone.findMany({
+                where: { isActive: true },
+                select: { name: true },
+                orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+            }),
+            prisma.order.groupBy({ by: ["deliveryZoneName"], _count: { _all: true } }),
+            prisma.order.groupBy({
+                by: ["district"],
+                _count: { _all: true },
+                orderBy: { _count: { district: "desc" } },
+                take: 30,
+            }),
+        ]);
+
+        return {
+            zones: [...new Set([...zones.map((zone) => zone.name), ...orderZones.map((zone) => zone.deliveryZoneName)])],
+            districts: districts.map((group) => group.district),
+        };
+    },
+
+    getOrderFormOptions: async () => {
+        const [zones, products] = await Promise.all([
+            prisma.deliveryZone.findMany({
+                where: { isActive: true },
+                select: { id: true, name: true, charge: true, estimatedDays: true },
+                orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+            }),
+            prisma.product.findMany({
+                where: { status: ProductStatus.ACTIVE, deletedAt: null, ...inStockWhere },
+                select: { id: true, name: true, sku: true, price: true, discountPrice: true, stock: true, manageStock: true },
+                orderBy: { name: "asc" },
+                take: 500,
+            }),
+        ]);
+
+        return {
+            zones,
+            products: products.map((product) => ({
+                id: product.id,
+                name: product.name,
+                sku: product.sku,
+                price:
+                    product.discountPrice !== null && product.discountPrice.lt(product.price)
+                        ? product.discountPrice
+                        : product.price,
+                stock: product.manageStock ? product.stock : null,
+            })),
+            districts: locationService.getDistricts().map((district) => ({
+                name: district.name,
+                areas: locationService.getThanas(district.name).map((thana) => thana.name),
+            })),
+        };
+    },
+
+    searchCustomers: async (searchTerm: string | undefined) => {
+        if (!searchTerm) return [];
+
+        const digits = digitsOnly(searchTerm).replace(/^\+?88/, "");
+        const customers = await prisma.user.findMany({
+            where: {
+                role: UserRole.CUSTOMER,
+                deletedAt: null,
+                isBanned: false,
+                OR: [
+                    { name: { contains: searchTerm, mode: "insensitive" } },
+                    ...(/^\d{3,}$/.test(digits) ? [{ phone: { contains: digits } }] : []),
+                ],
+            },
+            select: {
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+                _count: { select: { orders: true } },
+                addresses: {
+                    select: { address: true, district: true, area: true, deliveryZoneId: true },
+                    orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+                    take: 1,
+                },
+            },
+            orderBy: { name: "asc" },
+            take: 6,
+        });
+
+        return customers.map(({ _count, addresses, email, ...customer }) => ({
+            ...customer,
+            email: email.endsWith(`@${GUEST_EMAIL_DOMAIN}`) ? null : email,
+            orderCount: _count.orders,
+            address: addresses[0] ?? null,
+        }));
+    },
+
+    createAdminOrder: async (payload: AdminCreateOrderPayload, adminId: string) => {
+        const existing = await prisma.user.findUnique({
+            where: { phone: payload.recipientPhone },
+            select: { id: true, isBanned: true, deletedAt: true },
+        });
+
+        if (existing && (existing.isBanned || existing.deletedAt)) {
+            throw new AppError("This phone number is blocked from placing orders", 403);
+        }
+
+        const lines = await priceItems(mergeItems(payload.items));
+        const zone = await findActiveZone(payload.deliveryZoneId);
+        const totals = await calculateTotals(lines, zone, payload.couponCode, existing?.id, payload.recipientPhone);
+        const orderNumber = await generateOrderNumber();
+
+        const order = await prisma.$transaction(async (tx) => {
+            const customer = await findOrCreateGuestCustomer(
+                tx,
+                payload.recipientName,
+                payload.recipientPhone,
+                payload.email,
+            );
+
+            if (totals.coupon) {
+                await useCoupon(tx, totals.coupon.id);
+            }
+
+            await reduceStock(tx, lines);
+
+            const created = await tx.order.create({
+                data: {
+                    orderNumber,
+                    userId: customer.userId,
+                    recipientName: payload.recipientName,
+                    recipientPhone: payload.recipientPhone,
+                    recipientEmail: payload.email ?? null,
+                    address: payload.address,
+                    district: payload.district,
+                    area: payload.area,
+                    deliveryZoneName: zone.name,
+                    customerNote: payload.customerNote ?? null,
+                    subtotal: totals.subtotal,
+                    discountAmount: totals.discountAmount,
+                    deliveryCharge: totals.deliveryCharge ?? 0,
+                    total: totals.total,
+                    couponCode: totals.coupon?.code ?? null,
+                    couponId: totals.coupon?.id ?? null,
+                    paymentMethod: payload.paymentMethod,
+                    items: {
+                        create: lines.map((line) => ({
+                            productId: line.productId,
+                            productName: line.productName,
+                            productSku: line.productSku,
+                            productImage: line.productImage,
+                            unitPrice: line.unitPrice,
+                            quantity: line.quantity,
+                            lineTotal: line.lineTotal,
+                            discountAmount: totals.itemDiscounts.get(line.productId) ?? 0,
+                        })),
+                    },
+                    statusHistory: {
+                        create: { status: OrderStatus.PENDING, note: "Order placed by staff", changedById: adminId },
+                    },
+                },
+                select: orderSelect,
+            });
+
+            if (customer.isNew) {
+                await tx.address.create({
+                    data: {
+                        userId: customer.userId,
+                        recipientName: payload.recipientName,
+                        recipientPhone: payload.recipientPhone,
+                        address: payload.address,
+                        district: payload.district,
+                        area: payload.area,
+                        deliveryZoneId: zone.id,
+                        isDefault: true,
+                    },
+                });
+            }
+
+            return created;
+        });
+
+        void notifyStockLevels(lines);
+
         return order;
+    },
+
+    bulkUpdateStatus: async (payload: BulkOrderStatusPayload, adminId: string) => {
+        const orders = await prisma.order.findMany({
+            where: { id: { in: payload.orderIds } },
+            select: { id: true, orderNumber: true },
+        });
+
+        const failed: { orderNumber: string; message: string }[] = [];
+        let updated = 0;
+
+        for (const order of orders) {
+            try {
+                await changeOrderStatus(
+                    order.id,
+                    {
+                        status: payload.status,
+                        note: payload.note,
+                        cancelReason:
+                            payload.status === OrderStatus.CANCELLED ? (payload.note ?? "Cancelled by staff") : undefined,
+                        restock: true,
+                    },
+                    adminId,
+                );
+                updated += 1;
+            } catch (error) {
+                failed.push({
+                    orderNumber: order.orderNumber,
+                    message: error instanceof AppError ? error.message : "Could not update this order",
+                });
+            }
+        }
+
+        return { updated, failed };
+    },
+
+    getPayments: async (query: GetPaymentsQuery) => {
+        const where: Prisma.OrderWhereInput = {
+            AND: [
+                { paymentMethod: query.paymentMethod ?? { not: PaymentMethod.COD } },
+                query.verification
+                    ? verificationWhere[query.verification]
+                    : { OR: Object.values(verificationWhere) },
+                ...(query.searchTerm ? [orderSearchFilter(query.searchTerm)] : []),
+            ],
+        };
+
+        const [orders, total] = await Promise.all([
+            prisma.order.findMany({
+                where,
+                select: paymentListSelect,
+                orderBy: { createdAt: "desc" },
+                ...getPagination(query),
+            }),
+            prisma.order.count({ where }),
+        ]);
+
+        return { payments: await toPaymentRows(orders), meta: paginationMeta(query, total) };
+    },
+
+    getPendingPayments: async (limit: number) => {
+        const where: Prisma.OrderWhereInput = {
+            paymentMethod: { not: PaymentMethod.COD },
+            ...verificationWhere.PENDING,
+        };
+
+        const [orders, total] = await Promise.all([
+            prisma.order.findMany({ where, select: paymentListSelect, orderBy: { createdAt: "desc" }, take: limit }),
+            prisma.order.count({ where }),
+        ]);
+
+        return { payments: await toPaymentRows(orders), total };
+    },
+
+    getPaymentSummary: async () => {
+        const advance = { paymentMethod: { not: PaymentMethod.COD } };
+        const today = { gte: dhakaDayStart() };
+        const yesterday = { gte: dhakaDayStart(-1), lt: dhakaDayStart() };
+        const verified = (paymentVerifiedAt: Prisma.DateTimeFilter) =>
+            prisma.order.count({ where: { ...advance, ...verificationWhere.VERIFIED, paymentVerifiedAt } });
+        const rejected = (paymentVerifiedAt: Prisma.DateTimeFilter) =>
+            prisma.order.count({ where: { ...advance, paymentStatus: PaymentStatus.UNPAID, paymentVerifiedAt } });
+
+        const [awaiting, verifiedToday, verifiedYesterday, rejectedToday, rejectedYesterday] = await Promise.all([
+            prisma.order.aggregate({
+                where: { ...advance, ...verificationWhere.PENDING },
+                _count: { _all: true },
+                _sum: { total: true },
+            }),
+            verified(today),
+            verified(yesterday),
+            rejected(today),
+            rejected(yesterday),
+        ]);
+
+        return {
+            awaiting: awaiting._count._all,
+            amountToVerify: awaiting._sum.total ?? new Decimal(0),
+            verifiedToday: { value: verifiedToday, change: percentChange(verifiedToday, verifiedYesterday) },
+            rejectedToday: { value: rejectedToday, change: percentChange(rejectedToday, rejectedYesterday) },
+        };
+    },
+
+    rejectPayment: async (orderId: string, payload: RejectPaymentPayload, adminId: string) => {
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            select: { id: true, status: true, paymentMethod: true, paymentStatus: true, paymentVerifiedAt: true },
+        });
+
+        if (!order) {
+            throw new AppError("Order not found", 404);
+        }
+
+        if (order.paymentMethod === PaymentMethod.COD) {
+            throw new AppError("Cash on delivery orders have no advance payment to reject", 400);
+        }
+
+        if (order.status === OrderStatus.CANCELLED || order.status === OrderStatus.RETURNED) {
+            throw new AppError(`Cannot change payment of a ${order.status.toLowerCase()} order`, 400);
+        }
+
+        if (order.paymentStatus !== PaymentStatus.UNPAID) {
+            throw new AppError("Only unpaid payments can be rejected", 400);
+        }
+
+        if (order.paymentVerifiedAt) {
+            throw new AppError("This payment has already been rejected", 400);
+        }
+
+        return prisma.$transaction(async (tx) => {
+            const updated = await tx.order.updateMany({
+                where: { id: order.id, paymentStatus: PaymentStatus.UNPAID, paymentVerifiedAt: null },
+                data: { paymentVerifiedAt: new Date(), paymentVerifiedById: adminId },
+            });
+
+            if (updated.count === 0) {
+                throw new AppError("This order was just updated by someone else. Please refresh", 409);
+            }
+
+            await tx.orderStatusHistory.create({
+                data: {
+                    orderId: order.id,
+                    status: order.status,
+                    note: payload.reason ? `${PAYMENT_REJECTED_NOTE} — ${payload.reason}` : PAYMENT_REJECTED_NOTE,
+                    changedById: adminId,
+                },
+            });
+
+            return tx.order.findUniqueOrThrow({ where: { id: order.id }, select: adminOrderSelect });
+        });
+    },
+
+    recordRefund: async (orderId: string, payload: RecordRefundPayload, adminId: string) => {
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            select: {
+                id: true,
+                status: true,
+                total: true,
+                paymentStatus: true,
+                statusHistory: { select: { note: true } },
+            },
+        });
+
+        if (!order) {
+            throw new AppError("Order not found", 404);
+        }
+
+        if (order.paymentStatus !== PaymentStatus.PAID && order.paymentStatus !== PaymentStatus.PARTIALLY_REFUNDED) {
+            throw new AppError("Only paid orders can be refunded", 400);
+        }
+
+        const refunded = refundedAmountOf(order);
+        const remaining = order.total.sub(refunded);
+        const amount = new Decimal(payload.amount).toDecimalPlaces(2);
+
+        if (amount.gt(remaining)) {
+            throw new AppError(`Refund cannot be more than ${formatTaka(remaining)}`, 400);
+        }
+
+        const paymentStatus = refunded.add(amount).gte(order.total) ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED;
+
+        return prisma.$transaction(async (tx) => {
+            const updated = await tx.order.updateMany({
+                where: { id: order.id, paymentStatus: order.paymentStatus },
+                data: { paymentStatus },
+            });
+
+            if (updated.count === 0) {
+                throw new AppError("This order was just updated by someone else. Please refresh", 409);
+            }
+
+            await tx.orderStatusHistory.create({
+                data: {
+                    orderId: order.id,
+                    status: order.status,
+                    note: `Refund ৳${amount.toFixed(2)} recorded${payload.reference ? ` · Ref ${payload.reference}` : ""}`,
+                    changedById: adminId,
+                },
+            });
+
+            return tx.order.findUniqueOrThrow({ where: { id: order.id }, select: adminOrderSelect });
+        });
+    },
+
+    getAdminInvoice: async (orderId: string) => {
+        const [order, numbering, store] = await Promise.all([
+            prisma.order.findUnique({ where: { id: orderId }, select: invoiceSelect }),
+            getSetting("numbering"),
+            loadInvoiceStore(),
+        ]);
+
+        if (!order) {
+            throw new AppError("Order not found", 404);
+        }
+
+        return toInvoice(withInvoiceNumber(order, numbering.invoicePrefix), store);
+    },
+
+    getAdminInvoices: async (orderIds: string[]) => {
+        const [orders, numbering, store] = await Promise.all([
+            prisma.order.findMany({ where: { id: { in: orderIds } }, select: invoiceSelect }),
+            getSetting("numbering"),
+            loadInvoiceStore(),
+        ]);
+
+        const byId = new Map(orders.map((order) => [order.id, order]));
+
+        return orderIds
+            .map((id) => byId.get(id))
+            .filter((order): order is InvoiceOrder => !!order)
+            .map((order) => toInvoice(withInvoiceNumber(order, numbering.invoicePrefix), store));
     },
 
     updateOrderStatus: async (orderId: string, payload: UpdateOrderStatusPayload, adminId: string) => {

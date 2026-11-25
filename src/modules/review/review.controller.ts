@@ -97,6 +97,29 @@ export const reviewController = {
         });
     }),
 
+    getReviewSummary: catchAsync(async (_req: Request, res: Response) => {
+        const summary = await reviewService.getReviewSummary();
+
+        res.setHeader("Cache-Control", "no-store");
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Review summary retrieved successfully",
+            data: summary,
+        });
+    }),
+
+    bulkUpdateReviewStatus: catchAsync(async (req: Request, res: Response) => {
+        const result = await reviewService.bulkUpdateReviewStatus(req.body);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Review status updated",
+            data: result,
+        });
+    }),
+
     updateReviewStatus: catchAsync(async (req: Request, res: Response) => {
         const { reviewId } = reviewIdParamSchema.parse(req.params);
         const review = await reviewService.updateReviewStatus(reviewId, req.body);

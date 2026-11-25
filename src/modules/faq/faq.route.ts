@@ -8,12 +8,15 @@ import { createFaqSchema, updateFaqSchema } from "./faq.validation";
 
 const router = Router();
 
-router.post("/", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(createFaqSchema), faqController.createFaq);
+const faqEditors = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER];
+const faqAdmins = [UserRole.SUPER_ADMIN, UserRole.ADMIN];
+
+router.post("/", Authentication(...faqEditors), validateRequest(createFaqSchema), faqController.createFaq);
 router.get("/", faqController.getPublicFaqs);
-router.get("/admin", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), faqController.getAllFaqs);
-router.get("/admin/:faqId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), faqController.getFaqById);
-router.put("/:faqId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), validateRequest(updateFaqSchema), faqController.updateFaq);
-router.delete("/:faqId", Authentication(UserRole.SUPER_ADMIN, UserRole.ADMIN), faqController.deleteFaq);
+router.get("/admin", Authentication(...faqEditors), faqController.getAllFaqs);
+router.get("/admin/:faqId", Authentication(...faqEditors), faqController.getFaqById);
+router.put("/:faqId", Authentication(...faqEditors), validateRequest(updateFaqSchema), faqController.updateFaq);
+router.delete("/:faqId", Authentication(...faqAdmins), faqController.deleteFaq);
 
 
 export const faqRoutes = router;

@@ -82,10 +82,17 @@ export const updateCouponSchema = z
     )
     .refine((data) => Object.keys(data).length > 0, { error: "Provide at least one field to update" });
 
+export const couponStatusOptions = ["active", "scheduled", "expired", "disabled"] as const;
+
 export const getAllCouponsQuerySchema = paginationQuerySchema.extend({
     isActive: booleanQuery("isActive"),
     discountType: z.enum(DiscountType, { error: "Invalid discount type" }).optional(),
     scope: z.enum(CouponScope, { error: "Invalid scope" }).optional(),
+    status: z.enum(couponStatusOptions, { error: "Status must be active, scheduled, expired or disabled" }).optional(),
+    searchTerm: searchTermQuery,
+});
+
+export const getCouponOrdersQuerySchema = paginationQuerySchema.extend({
     searchTerm: searchTermQuery,
 });
 
@@ -123,3 +130,4 @@ export type CreateCouponPayload = z.infer<typeof createCouponSchema>;
 export type UpdateCouponPayload = z.infer<typeof updateCouponSchema>;
 export type GetAllCouponsQuery = z.infer<typeof getAllCouponsQuerySchema>;
 export type ApplyCouponPayload = z.infer<typeof applyCouponSchema>;
+export type GetCouponOrdersQuery = z.infer<typeof getCouponOrdersQuerySchema>;

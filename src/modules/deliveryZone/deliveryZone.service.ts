@@ -1,12 +1,17 @@
 import { prisma } from "../../lib/prisma";
 import { AppError } from "../../helpers/AppError";
 import type { Prisma } from "../../generated/prisma/client";
+import { CouponScope, DiscountType } from "../../generated/prisma/enums";
 import { paginationMeta, getPagination } from "../../shared/pagination";
 import type {
     CreateDeliveryZonePayload,
     GetAllDeliveryZonesQuery,
     UpdateDeliveryZonePayload,
 } from "./deliveryZone.validation";
+
+const AREAS_SETTING_KEY = "deliveryZoneAreas";
+const ORDER_WINDOW_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const deliveryZoneSelect = {
     id: true,
@@ -26,6 +31,57 @@ const publicDeliveryZoneSelect = {
     charge: true,
     estimatedDays: true,
 } satisfies Prisma.DeliveryZoneSelect;
+
+type ZoneRow = Prisma.DeliveryZoneGetPayload<{ select: typeof deliveryZoneSelect }>;
+
+type AreasMap = Record<string, string>;
+
+const readAreas = async (): Promise<AreasMap> => {
+    const row = await prisma.setting.findUnique({ where: { key: AREAS_SETTING_KEY }, select: { value: true } });
+    const value = row?.value;
+
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+    return Object.fromEntries(
+        Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+};
+
+const writeAreas = async (zoneId: string, areas: string | null) => {
+    const current = await readAreas();
+    const next = { ...current };
+
+    if (areas) next[zoneId] = areas;
+    else delete next[zoneId];
+
+    await prisma.setting.upsert({
+        where: { key: AREAS_SETTING_KEY },
+        create: { key: AREAS_SETTING_KEY, value: next },
+        update: { value: next },
+    });
+};
+
+const recentOrderCounts = async (names: string[]) => {
+    if (!names.length) return new Map<string, number>();
+
+    const groups = await prisma.order.groupBy({
+        by: ["deliveryZoneName"],
+        where: { deliveryZoneName: { in: names }, createdAt: { gte: new Date(Date.now() - ORDER_WINDOW_DAYS * DAY_MS) } },
+        _count: { _all: true },
+    });
+
+    return new Map(groups.map((group) => [group.deliveryZoneName, group._count._all]));
+};
+
+const withDetails = async (zones: ZoneRow[]) => {
+    const [areas, orders] = await Promise.all([readAreas(), recentOrderCounts(zones.map((zone) => zone.name))]);
+
+    return zones.map((zone) => ({
+        ...zone,
+        areas: areas[zone.id] ?? null,
+        recentOrders: orders.get(zone.name) ?? 0,
+    }));
+};
 
 const ensureNameAvailable = async (name: string, excludeId?: string) => {
     const existing = await prisma.deliveryZone.findFirst({
@@ -53,13 +109,18 @@ const ensureZoneExists = async (zoneId: string) => {
 };
 
 export const deliveryZoneService = {
-    createDeliveryZone: async (payload: CreateDeliveryZonePayload) => {
+    createDeliveryZone: async ({ areas, ...payload }: CreateDeliveryZonePayload) => {
         await ensureNameAvailable(payload.name);
 
-        return prisma.deliveryZone.create({
+        const zone = await prisma.deliveryZone.create({
             data: payload,
             select: deliveryZoneSelect,
         });
+
+        if (areas) await writeAreas(zone.id, areas);
+
+        const [detailed] = await withDetails([zone]);
+        return detailed!;
     },
 
     getPublicDeliveryZones: async () => {
@@ -88,7 +149,30 @@ export const deliveryZoneService = {
             prisma.deliveryZone.count({ where }),
         ]);
 
-        return { zones, meta: paginationMeta(query, total) };
+        return { zones: await withDetails(zones), meta: paginationMeta(query, total) };
+    },
+
+    getFreeDeliveryOffer: async () => {
+        const now = new Date();
+
+        const coupon = await prisma.coupon.findFirst({
+            where: {
+                discountType: DiscountType.FREE_DELIVERY,
+                scope: CouponScope.ALL,
+                isActive: true,
+                deletedAt: null,
+                AND: [
+                    { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+                    { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+                ],
+            },
+            select: { code: true, minOrderAmount: true, usageLimit: true, usedCount: true },
+            orderBy: [{ minOrderAmount: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
+        });
+
+        if (!coupon || (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit)) return null;
+
+        return { code: coupon.code, minOrderAmount: coupon.minOrderAmount };
     },
 
     getDeliveryZoneById: async (zoneId: string) => {
@@ -101,21 +185,29 @@ export const deliveryZoneService = {
             throw new AppError("Delivery zone not found", 404);
         }
 
-        return zone;
+        const [detailed] = await withDetails([zone]);
+        return detailed!;
     },
 
-    updateDeliveryZone: async (zoneId: string, payload: UpdateDeliveryZonePayload) => {
+    updateDeliveryZone: async (zoneId: string, { areas, ...payload }: UpdateDeliveryZonePayload) => {
         await ensureZoneExists(zoneId);
 
         if (payload.name) {
             await ensureNameAvailable(payload.name, zoneId);
         }
 
-        return prisma.deliveryZone.update({
-            where: { id: zoneId },
-            data: payload,
-            select: deliveryZoneSelect,
-        });
+        const zone = Object.keys(payload).length
+            ? await prisma.deliveryZone.update({
+                  where: { id: zoneId },
+                  data: payload,
+                  select: deliveryZoneSelect,
+              })
+            : await prisma.deliveryZone.findUniqueOrThrow({ where: { id: zoneId }, select: deliveryZoneSelect });
+
+        if (areas !== undefined) await writeAreas(zoneId, areas || null);
+
+        const [detailed] = await withDetails([zone]);
+        return detailed!;
     },
 
     deleteDeliveryZone: async (zoneId: string) => {
@@ -136,5 +228,6 @@ export const deliveryZoneService = {
         }
 
         await prisma.deliveryZone.delete({ where: { id: zoneId } });
+        await writeAreas(zoneId, null);
     },
 };
