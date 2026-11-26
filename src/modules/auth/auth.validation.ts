@@ -30,5 +30,13 @@ export const signInSchema = z.object({
   rememberMe: z.boolean().optional(),
 });
 
+export const changePasswordSchema = z.object({
+  newPassword: z
+    .string({ error: "New password is required" })
+    .min(8, { error: "Password must be at least 8 characters" })
+    .max(128, { error: "Password must be at most 128 characters" }),
+});
+
 export type SignUpPayload = z.infer<typeof signUpSchema>;
 export type SignInPayload = z.infer<typeof signInSchema>;
+export type ChangePasswordPayload = z.infer<typeof changePasswordSchema>;

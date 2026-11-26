@@ -55,6 +55,16 @@ export const AuthController = {
         });
     }),
 
+    changePassword: catchAsync(async (req: Request, res: Response) => {
+        await AuthService.changePassword(req.user!.id, req.body, req.headers);
+
+        sendResponse(res, {
+            statusCode: 200,
+            success: true,
+            message: "Password updated successfully",
+        });
+    }),
+
     getProfile: catchAsync(async (req: Request, res: Response) => {
         const user = await AuthService.getProfile(req.user!.id);
 

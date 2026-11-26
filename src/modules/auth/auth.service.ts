@@ -1,9 +1,11 @@
 import type { IncomingHttpHeaders } from "node:http";
+import { randomUUID } from "node:crypto";
+import { hashPassword } from "better-auth/crypto";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/prisma";
 import { AppError } from "../../helpers/AppError";
-import { SignInPayload, SignUpPayload } from "./auth.validation";
+import { ChangePasswordPayload, SignInPayload, SignUpPayload } from "./auth.validation";
 
 
 export const AuthService = {
@@ -70,6 +72,25 @@ export const AuthService = {
         });
 
         return { headers: responseHeaders };
+    },
+
+    changePassword: async (userId: string, payload: ChangePasswordPayload, reqHeaders: IncomingHttpHeaders) => {
+        const password = await hashPassword(payload.newPassword);
+
+        const account = await prisma.account.findFirst({
+            where: { userId, providerId: "credential" },
+            select: { id: true },
+        });
+
+        if (account) {
+            await prisma.account.update({ where: { id: account.id }, data: { password } });
+        } else {
+            await prisma.account.create({
+                data: { id: randomUUID(), accountId: userId, providerId: "credential", userId, password },
+            });
+        }
+
+        await auth.api.revokeOtherSessions({ headers: fromNodeHeaders(reqHeaders) });
     },
 
     getProfile: async (userId: string) => {
